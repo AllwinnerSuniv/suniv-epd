@@ -5,7 +5,7 @@ KERN_DIR ?= /lib/modules/$(shell uname -r)/build
 # users kernel dir
 KERN_DIR := /home/developer/sources/HamsterBear/software/bsp/linux-5.17.2
 
-MODULE_NAME := template
+MODULE_NAME := uc8253
 
 all:
 	make -C $(KERN_DIR) M=`pwd` modules
