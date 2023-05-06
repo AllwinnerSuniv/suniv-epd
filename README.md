@@ -1,32 +1,19 @@
-<h1 align="center"> Suniv driver template </h1>
+<body >
+<h1 align="center">Suniv Epd</h1>
 
-This a linux driver template for Allwinner suniv series SoC.
+<div style="
+    text-align: center;
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    top: 25%;
+    overflow: visible;
+    width: 30%;
+    margin-left: 35%;">
 
-# Build
+<span>Heya, I'm developing linux drivers for E-paper display recently.</span>
 
-modify the `KERN_DIR` in  `Makefile` to your real kernel source or just export it.
-
-then
-
-```bash
-bear -- make
-```
-
-edit in vscode
-
-```bash
-code .
-```
-
-make sure clangd was configured correctly.
-
-# Depoly
-
-In device uart though minicom /dev/ttyUSB0 etc.
-
-```bash
-rz
-```
-
-type `Ctrl+A S` choose `zmodem` and filled the input with file path
-
+</div>
+</body>
