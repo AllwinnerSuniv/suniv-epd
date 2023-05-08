@@ -22,6 +22,7 @@
 
 #include <linux/uaccess.h>
 
+#include <linux/fb.h>
 #include <video/mipi_display.h>
 
 #include "epd_3in52_regs.h"
@@ -43,11 +44,11 @@ struct uc8253_data {
 
         struct device           *dev;
         struct spi_device       *spi;
-        u8                      *buf;
-        struct {
-                void *buf;
-                size_t len;
-        } txbuf;
+        // u8                      *buf;
+        // struct {
+        //         void *buf;
+        //         size_t len;
+        // } txbuf;
         struct {
                 struct gpio_desc *reset;
                 struct gpio_desc *dc;
@@ -64,6 +65,9 @@ struct uc8253_data {
         u32                     busy;
 
         struct uc8253_operations        ops;
+
+        struct fb_info          *fbinfo;
+        struct fb_ops           *fbops;
 };
 
 static int g_epd_3in52_flag = 0;
@@ -325,14 +329,15 @@ static int uc8253_probe(struct spi_device *spi)
 {
         struct uc8253_data *ud;
         struct device *dev = &spi->dev;
+        struct fb_info *info;
 
         printk("%s\n", __func__);
         /* memory resource alloc */
-        ud = kmalloc(sizeof(struct uc8253_data), GFP_KERNEL);
-        if (!ud) {
-                dev_err(dev, "failed to alloc ud memory!\n");
-                return -ENOMEM;
-        }
+        // ud = kmalloc(sizeof(struct uc8253_data), GFP_KERNEL);
+        // if (!ud) {
+        //         dev_err(dev, "failed to alloc ud memory!\n");
+        //         return -ENOMEM;
+        // }
 
         // ud->buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
         // if (!ud->buf) {
@@ -345,7 +350,16 @@ static int uc8253_probe(struct spi_device *spi)
         //         dev_err(dev, "failed to alloc txbuf!\n");
         //         return -ENOMEM;
         // }
+        
+        info = framebuffer_alloc(sizeof(struct uc8253_data), dev);
+        if (!info) {
+                dev_err(dev, "failed to alloc framebuffer!\n");
+                return -ENOMEM;
+        }
 
+        ud = info->par;
+
+        ud->fbinfo = info;
         ud->spi = spi;
         ud->dev = dev;
         spi_set_drvdata(spi, ud);
@@ -360,11 +374,12 @@ static int uc8253_probe(struct spi_device *spi)
 
 static int uc8253_remove(struct spi_device *spi)
 {
-        struct uc8253_dev *ud = spi_get_drvdata(spi);
+        struct uc8253_data *ud = spi_get_drvdata(spi);
 
         printk("%s\n", __func__);
         // kfree(ud->buf);
         // kfree(ud->txbuf.buf);
+        framebuffer_release(ud->fbinfo);
 
         kfree(ud);
         return 0;
@@ -374,11 +389,13 @@ static const struct of_device_id uc8253_dt_ids[] = {
         { .compatible = "ultrachip,uc8253" },
         { /* KEEP THIS */ },
 };
+MODULE_DEVICE_TABLE(of, uc8253_dt_ids);
 
 static const struct spi_device_id uc8253_spi_ids[] = {
         { "uc8253" },
         { /* KEEP THIS */ },
 };
+MODULE_DEVICE_TABLE(spi, uc8253_spi_ids);
 
 static struct spi_driver uc8253_drv = {
         .driver = {
