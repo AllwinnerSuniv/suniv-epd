@@ -13,5 +13,7 @@ all:
 clean:
 	make -C $(KERN_DIR) M=`pwd` modules clean
 
+clena: clean
+
 #CFLAGS_$(MODULE_NAME).o := -DDEBUG
 obj-m += $(MODULE_NAME).o

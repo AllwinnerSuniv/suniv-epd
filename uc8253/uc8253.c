@@ -40,6 +40,12 @@ struct uc8253_operations {
         int (*is_busy)(struct uc8253_data *ud);
 };
 
+struct uc8253_display {
+        u32                     xres;
+        u32                     yres;
+        u32                     bpp;
+};
+
 struct uc8253_data {
 
         struct device           *dev;
@@ -55,16 +61,17 @@ struct uc8253_data {
                 struct gpio_desc *cs;
                 struct gpio_desc *busy;
         } gpio;
+
+        spinlock_t              dirty_lock;
         struct completion       complete;
 
         /* device specific */
-        u32                     xres;
-        u32                     yres;
         u32                     refr_mode;
         u32                     wait;
         u32                     busy;
 
         struct uc8253_operations        ops;
+        const struct uc8253_display           *display;
 
         struct fb_info          *fbinfo;
         struct fb_ops           *fbops;
@@ -289,6 +296,19 @@ static int uc8253_request_gpios(struct uc8253_data *ud)
         return 0;
 }
 
+/* returns 0 if the property is not present */
+static u32 fbtft_property_value(struct device *dev, const char *propname)
+{
+    int ret; 
+    u32 val = 0; 
+
+    ret = device_property_read_u32(dev, propname, &val);
+    if (ret == 0)
+        dev_info(dev, "%s: %s = %u\n", __func__, propname, val);
+
+    return val; 
+}
+
 static int uc8253_of_config(struct uc8253_data *ud)
 {
         int rc;
@@ -302,7 +322,6 @@ static int uc8253_of_config(struct uc8253_data *ud)
         return 0;
 
         /* request xres and yres from dt */
-
 }
 
 static int uc8253_hw_init(struct uc8253_data *ud)
@@ -324,17 +343,27 @@ static int uc8253_hw_init(struct uc8253_data *ud)
         return 0;
 }
 
+static const struct uc8253_display display = {
+        .xres = 360,
+        .yres = 240,
+        .bpp = 1,
+};
 
 static int uc8253_probe(struct spi_device *spi)
 {
-        struct uc8253_data *ud;
         struct device *dev = &spi->dev;
+        struct uc8253_data *ud;
+        struct fb_deferred_io *fbdefio;
         struct fb_info *info;
+        struct fb_ops *fbops;
+        u8 *vmem = NULL;
+        int vmem_size;
+        int rc;
 
         printk("%s\n", __func__);
         /* memory resource alloc */
-        // ud = kmalloc(sizeof(struct uc8253_data), GFP_KERNEL);
-        // if (!ud) {
+        // display = kmalloc(sizeof(struct uc8253_display), GFP_KERNEL);
+        // if (!display) {
         //         dev_err(dev, "failed to alloc ud memory!\n");
         //         return -ENOMEM;
         // }
@@ -350,24 +379,90 @@ static int uc8253_probe(struct spi_device *spi)
         //         dev_err(dev, "failed to alloc txbuf!\n");
         //         return -ENOMEM;
         // }
-        
+
+        vmem_size = display.xres * display.yres * display.bpp / BITS_PER_BYTE;
+        vmem = vzalloc(vmem_size);
+        if (!vmem)
+                goto alloc_fail;
+
+        fbops = devm_kzalloc(dev, sizeof(struct fb_ops), GFP_KERNEL);
+        if (!fbops)
+                goto alloc_fail;
+
+        fbdefio = devm_kzalloc(dev, sizeof(struct fb_deferred_io), GFP_KERNEL);
+        if (!fbdefio)
+                goto alloc_fail;
+
+        /* framebuffer info setup */
         info = framebuffer_alloc(sizeof(struct uc8253_data), dev);
         if (!info) {
                 dev_err(dev, "failed to alloc framebuffer!\n");
                 return -ENOMEM;
         }
 
-        ud = info->par;
+        info->screen_buffer = vmem;
+        info->fbops = fbops;
+        info->fbdefio = fbdefio;
 
+        fbops->owner = dev->driver->owner;
+        fbops->fb_read = fb_sys_read;
+        fbops->fb_write = NULL;
+        fbops->fb_fillrect = NULL;
+        fbops->fb_copyarea = NULL;
+        fbops->fb_imageblit = NULL;
+        fbops->fb_setcolreg = NULL;
+        fbops->fb_blank = NULL;
+
+        fbdefio->delay = HZ;
+        fbdefio->deferred_io = NULL;
+        fb_deferred_io_init(info);
+
+        snprintf(info->fix.id, sizeof(info->fix.id), "%s", dev->driver->name);
+        info->fix.type            =       FB_TYPE_PACKED_PIXELS;
+        info->fix.visual          =       FB_VISUAL_MONO01;
+        info->fix.xpanstep        =       0;
+        info->fix.ypanstep        =       0;
+        info->fix.ywrapstep       =       0;
+        info->fix.line_length     =       display.xres *display.bpp / BITS_PER_BYTE;
+        info->fix.accel           =       FB_ACCEL_NONE;
+        info->fix.smem_len        =       vmem_size;
+
+        info->var.rotate          =       0;
+        info->var.xres            =       display.xres;
+        info->var.yres            =       display.yres;
+        info->var.xres_virtual    =       info->var.xres;
+        info->var.yres_virtual    =       info->var.yres;
+        info->var.bits_per_pixel  =       display.bpp;
+        info->var.nonstd          =       1;
+
+        info->var.grayscale     = 2;
+        info->var.transp.offset = 0;
+        info->var.transp.length = 0;
+
+        info->flags = FBINFO_FLAG_DEFAULT | FBINFO_VIRTFB;
+
+        /* UC8253 self setup */
+        ud = info->par;
         ud->fbinfo = info;
         ud->spi = spi;
         ud->dev = dev;
+        ud->display = &display;
         spi_set_drvdata(spi, ud);
 
+        spin_lock_init(&ud->dirty_lock);
         init_completion(&ud->complete);
-
         uc8253_of_config(ud);
         uc8253_hw_init(ud);
+
+        /* framebuffer register */
+        rc = register_framebuffer(info);
+        if (rc < 0) {
+                dev_err(dev, "framebuffer register failed with %d!\n", rc);
+                goto alloc_fail;
+        }
+
+alloc_fail:
+        vfree(vmem);
 
         return 0;
 }
@@ -379,9 +474,8 @@ static int uc8253_remove(struct spi_device *spi)
         printk("%s\n", __func__);
         // kfree(ud->buf);
         // kfree(ud->txbuf.buf);
+        unregister_framebuffer(ud->fbinfo);
         framebuffer_release(ud->fbinfo);
-
-        kfree(ud);
         return 0;
 }
 
@@ -410,6 +504,6 @@ static struct spi_driver uc8253_drv = {
 module_spi_driver(uc8253_drv);
 
 MODULE_AUTHOR("Iota Hydrae <writeforever@foxmail.com>");
-MODULE_DESCRIPTION("UC8253 E-Paper display driver");
+MODULE_DESCRIPTION("UC8253 E-Paper display framebuffer driver");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:uc8253");
