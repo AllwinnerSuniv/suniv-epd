@@ -17,5 +17,5 @@
                 spi-cpha;
                 reset-gpios = <&pio 3 5 GPIO_ACTIVE_HIGH>;
                 dc-gpios = <&pio 3 6 GPIO_ACTIVE_LOW>;
-                //busy-gpios = <&pio 3 3>;
+                busy-gpios = <&pio 3 3>;
     };

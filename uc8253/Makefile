@@ -15,5 +15,5 @@ clean:
 
 clena: clean
 
-#CFLAGS_$(MODULE_NAME).o := -DDEBUG
+CFLAGS_$(MODULE_NAME).o := -DDEBUG
 obj-m += $(MODULE_NAME).o
