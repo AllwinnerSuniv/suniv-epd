@@ -1,0 +1,21 @@
+// Copyright (c) 2023 IotaHydrae(writeforever@foxmail.com)
+// 
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+    uc8253: uc8253@0 {
+                #address-cells = <1>;
+                #size-cells = <1>;
+                status = "okay";
+                compatile = "ultrachip,uc8253";
+                reg = <0>;
+                spi-max-frequency = <10000000>;
+                buswidth = <8>;
+                xres = <360>;
+                yres = <240>;
+                spi-cpol;
+                spi-cpha;
+                reset-gpios = <&pio 3 5 GPIO_ACTIVE_HIGH>;
+                dc-gpios = <&pio 3 6 GPIO_ACTIVE_LOW>;
+                busy-gpios = <&pio 3 3>;
+    };
