@@ -43,11 +43,12 @@ struct st7789v_display {
         u32                     bpp;
 };
 
+#define SUN6I_FIFO_DEPTH 128
 struct st7789v_par {
 
         struct device           *dev;
         struct spi_device       *spi;
-        // u8                      *buf;
+        u8                      *buf;
         // struct {
         //         void *buf;
         //         size_t len;
@@ -76,13 +77,11 @@ struct st7789v_par {
         struct fb_ops           *fbops;
 
         u32             palette_buffer[256];
-        u32             palette_pal[16];
+        u32             pseudo_palette[16];
+        u8 txbuf[SUN6I_FIFO_DEPTH];
 };
 
 // static int g_epd_3in27_flag = 0;
-#define SUN6I_FIFO_DEPTH 128
-u8 txbuf[SUN6I_FIFO_DEPTH] = {0};
-u32 pseudo_palette[16];
 
 static int fbtft_write_spi(struct st7789v_par *par, void *buf, size_t len)
 {
@@ -134,6 +133,7 @@ static int st7789v_reset(struct st7789v_par *par)
 static int st7789v_init_display(struct st7789v_par *par)
 {
         st7789v_reset(par);
+        mdelay(20);
 
         write_cmd(par, 0x11);
         mdelay(120);
@@ -142,97 +142,73 @@ static int st7789v_init_display(struct st7789v_par *par)
         write_data(par,  0x00);
 
         write_cmd(par,  0x3A);
-        write_data(par,  0x06);
+        write_data(par,  0x05); /* RGB 565 */
 
         write_cmd(par,  0xB2);
-        write_data(par,  0x0B);
-        write_data(par,  0x0B);
+        write_data(par,  0x0C);
+        write_data(par,  0x0C);
         write_data(par,  0x00);
         write_data(par,  0x33);
         write_data(par,  0x33);
 
         write_cmd(par,  0xB7);
-        write_data(par,  0x11);
+        write_data(par,  0x35);
 
         write_cmd(par,  0xBB);
-        write_data(par,  0x2F);
-
-        write_cmd(par,  0xC0);
-        write_data(par,  0x2C);
+        write_data(par,  0x32);
 
         write_cmd(par,  0xC2);
         write_data(par,  0x01);
 
         write_cmd(par,  0xC3);
-        write_data(par,  0x0D);
+        write_data(par,  0x15);
 
         write_cmd(par,  0xC4);
         write_data(par,  0x20);   //VDV, 0x20:0v
 
         write_cmd(par,  0xC6);
-        write_data(par,  0x13);   //0x13:60Hz
+        write_data(par,  0x0F);   //0x13:60Hz
 
         write_cmd(par,  0xD0);
         write_data(par,  0xA4);
         write_data(par,  0xA1);
 
-        write_cmd(par,  0xD6);
-        write_data(par,  0xA1);   //sleep in后，gate输出为GND
+        write_cmd(par, 0xE0)
+        write_data(par, 0xD0);
+        write_data(par, 0x08);
+        write_data(par, 0x0E);
+        write_data(par, 0x09);
+        write_data(par, 0x09);
+        write_data(par, 0x05);
+        write_data(par, 0x31);
+        write_data(par, 0x33);
+        write_data(par, 0x48);
+        write_data(par, 0x17);
+        write_data(par, 0x14);
+        write_data(par, 0x15);
+        write_data(par, 0x31);
+        write_data(par, 0x34);
 
-        write_cmd(par,  0xE0);
-        write_data(par,  0xF0);
-        write_data(par,  0x04);
-        write_data(par,  0x07);
-        write_data(par,  0x09);
-        write_data(par,  0x07);
-        write_data(par,  0x13);
-        write_data(par,  0x25);
-        write_data(par,  0x33);
-        write_data(par,  0x3C);
-        write_data(par,  0x34);
-        write_data(par,  0x10);
-        write_data(par,  0x10);
-        write_data(par,  0x29);
-        write_data(par,  0x32);
 
-        write_cmd(par,  0xE1);
-        write_data(par,  0xF0);
-        write_data(par,  0x05);
-        write_data(par,  0x08);
-        write_data(par,  0x0A);
-        write_data(par,  0x09);
-        write_data(par,  0x05);
-        write_data(par,  0x25);
-        write_data(par,  0x32);
-        write_data(par,  0x3B);
-        write_data(par,  0x3B);
-        write_data(par,  0x17);
-        write_data(par,  0x18);
-        write_data(par,  0x2E);
-        write_data(par,  0x37);
+        write_cmd(par, 0xE1);
+        write_data(par, 0xD0);
+        write_data(par, 0x08);
+        write_data(par, 0x0E);
+        write_data(par, 0x09);
+        write_data(par, 0x09);
+        write_data(par, 0x15);
+        write_data(par, 0x31);
+        write_data(par, 0x33);
+        write_data(par, 0x48);
+        write_data(par, 0x17);
+        write_data(par, 0x14);
+        write_data(par, 0x15);
+        write_data(par, 0x31);
+        write_data(par, 0x34);
 
-        write_cmd(par,  0xE4);
-        write_data(par,  0x25);   //使用240根gate  (N+1)*8
-        write_data(par,  0x00);   //设定gate起点位置
-        write_data(par,  0x00);   //当gate没有用完时，bit4(TMG)设为0
+        write_cmd(par, 0x21);
+        write_cmd(par, 0x29);
 
-        write_cmd(par,  0x21);
-
-        write_cmd(par,  0x29);
-
-        write_cmd(par,  0x2A);     //Column Address Set
-        write_data(par,  0x00);
-        write_data(par,  0x00);   //0
-        write_data(par,  0x00);
-        write_data(par,  0xEF);   //239
-
-        write_cmd(par,  0x2B);     //Row Address Set
-        write_data(par,  0x00);
-        write_data(par,  0x14);   //0
-        write_data(par,  0x01);
-        write_data(par,  0x2B);
-
-        write_cmd(par,  0x2C);
         return 0;
 }
 
@@ -246,20 +222,24 @@ static int st7789v_blank(struct st7789v_par *par, bool on)
         return 0;
 }
 
-static int st7789v_set_cursor(struct st7789v_par *par, u32 x, u32 y)
+static void st7789v_set_addr_win(struct st7789v_par *par, int xs, int ys, int xe,
+                                 int ye)
 {
-        write_cmd(par, 0x2a);
-        write_data(par, 0x00);
-        write_data(par, (x & 0xff));
-        write_data(par, 0x00);
-        write_data(par, 0xef);  /* 239 */
+        // xs = xs + 20;
+        // xe = xe + 20;
+        write_cmd(par, MIPI_DCS_SET_COLUMN_ADDRESS);
+        write_data(par, (xs >> BITS_PER_BYTE) & 0xff);
+        write_data(par, (xs & 0xff));
+        write_data(par, (xe >> BITS_PER_BYTE) & 0xff);
+        write_data(par, (xe & 0xff));  /* 239 */
 
-        write_cmd(par, 0x2b);
-        write_data(par, 0x00);
-        write_data(par, (y & 0xff));
-        write_data(par, 0x01);
-        write_data(par, 0x2b);  /* 279 */
-        return 0;
+        write_cmd(par, MIPI_DCS_SET_PAGE_ADDRESS);
+        write_data(par, (ys >> BITS_PER_BYTE) & 0xff);
+        write_data(par, (ys & 0xff));
+        write_data(par, (ye >> BITS_PER_BYTE) & 0xff);
+        write_data(par, (ye & 0xff));  /* 279 */
+
+        write_cmd(par, MIPI_DCS_WRITE_MEMORY_START);
 }
 
 static int st7789v_sleep(struct st7789v_par *par)
@@ -270,13 +250,12 @@ static int st7789v_sleep(struct st7789v_par *par)
 static int st7789v_clear(struct st7789v_par *par)
 {
         int i;
-        st7789v_set_cursor(par, 0, 0);
-        write_cmd(par, 0x2c);
+        st7789v_set_addr_win(par, 0, 0, 240, 320);
+        memset(par->txbuf, 0x78, 128);
 
         for (i = 0; i < (240 * 280 * 2) / 128; i++) {
-                fbtft_write_buf_dc(par, txbuf, 128, 1);
+                fbtft_write_buf_dc(par, par->txbuf, 128, 1);
         }
-
         return 0;
 }
 
@@ -399,10 +378,27 @@ static const struct st7789v_display display = {
         .bpp = 16,
 };
 
-static void update_display(struct st7789v_par *par)
+static void write_vmem(struct st7789v_par *par, size_t offset, size_t len)
 {
-        int i;
+        dev_dbg(par->dev, "%s\n", __func__);
+        u16 *vmem16;
+        size_t remain;
+
+        remain = len /2;
+        vmem16 = (u16 *)(par->fbinfo->screen_buffer + offset);
+
+        gpiod_set_value(par->gpio.dc, 1);
+
+        /* non-buffered spi write */
+        fbtft_write_spi(par, vmem16, len);
+}
+
+static void update_display(struct st7789v_par *par, unsigned int start_line,
+                        unsigned int end_line)
+{
         u8 *buf = par->fbinfo->screen_buffer;
+        size_t offset, len;
+        int i;
 
         // printk("%s\n", __func__);
         dev_dbg(par->dev, "%s\n", __func__);
@@ -411,41 +407,68 @@ static void update_display(struct st7789v_par *par)
          * when this was called, driver should wait for busy pin comes low
          * until next frame refreshed
          */
+        start_line = 0;
+        end_line = par->fbinfo->var.yres-1;
+
+        st7789v_set_addr_win(par, 0, start_line, par->fbinfo->var.xres - 1, end_line);
+
+        offset = start_line * par->fbinfo->fix.line_length;
+        len = (end_line - start_line + 1) * par->fbinfo->fix.line_length;
+
+        write_vmem(par, offset, len);
 }
 
-static void st7789v_flush_task(unsigned long data)
-{
-        // int timeout;
-        struct st7789v_par *par = (struct st7789v_par *)data;
-}
+// static void st7789v_flush_task(unsigned long data)
+// {
+//         // int timeout;
+//         struct st7789v_par *par = (struct st7789v_par *)data;
+// }
 
 static void st7789v_mkdirty(struct fb_info *info, int y, int height)
 {
         struct st7789v_par *par = info->par;
-        // struct fb_deferred_io *fbdefio = info->fbdefio;
+        struct fb_deferred_io *fbdefio = info->fbdefio;
+
         dev_dbg(info->dev, "%s\n", __func__);
+
+        if (y == -1) {
+                y = 0;
+                height = info->var.yres;
+        }
+
+        /* mark dirty lines here, but update all for now */
         // spin_lock(&par->dirty_lock);
         // spin_unlock(&par->dirty_lock);
 
-        // schedule_delayed_work(&info->deferred_work, 0);
-        // tasklet_schedule(&par->task);
+        schedule_delayed_work(&info->deferred_work, fbdefio->delay);
 }
 
 static void st7789v_deferred_io(struct fb_info *info, struct list_head *pagelist)
 {
         struct st7789v_par *par = info->par;
-}
+        unsigned int dirty_lines_start, dirty_lines_end;
+        unsigned int y_low = 0, y_high = 0;
+        unsigned long index;
+        struct page *page;
+        int count = 0;
 
-static ssize_t st7789v_fb_write(struct fb_info *info, const char __user *buf,
-                                size_t count, loff_t *ppos)
-{
-        ssize_t res;
-        dev_dbg(info->dev,
-                "%s: count=%zd, ppos=%llu\n", __func__,  count, *ppos);
+        list_for_each_entry(page, pagelist, lru) {
+                count++;
+                index = page->index << PAGE_SHIFT;
+                y_low = index / info->fix.line_length;
+                y_high = (index + PAGE_SIZE - 1) / info->fix.line_length;
+                dev_dbg(info->device,
+                        "page->index=%lu y_low=%d y_high=%d\n",
+                        page->index, y_low, y_high);
+                if (y_high > info->var.yres - 1)
+                        y_high = info->var.yres - 1;
+                if (y_low < dirty_lines_start)
+                        dirty_lines_start = y_low;
+                if (y_high > dirty_lines_end)
+                        dirty_lines_end = y_high;
+        }
 
-        res = fb_sys_write(info, buf, count, ppos);
-        st7789v_mkdirty(info, -1, 0);
-        return 0;
+        update_display(par, dirty_lines_start, dirty_lines_end);
 }
 
 static void st7789v_fb_fillrect(struct fb_info *info,
@@ -481,23 +504,74 @@ static void st7789v_fb_imageblit(struct fb_info *info,
         st7789v_mkdirty(info, image->dy, image->height);
 }
 
+static ssize_t st7789v_fb_write(struct fb_info *info, const char __user *buf,
+                                size_t count, loff_t *ppos)
+{
+        ssize_t res;
+        dev_dbg(info->dev,
+                "%s: count=%zd, ppos=%llu\n", __func__,  count, *ppos);
+
+        res = fb_sys_write(info, buf, count, ppos);
+
+        st7789v_mkdirty(info, -1, 0);
+        return 0;
+}
+
+static unsigned int chan_to_field(unsigned int chan, struct fb_bitfield *bf)
+{
+        chan &= 0xfff;
+        chan >>= 16 - bf->length;
+        return chan << bf->offset;
+}
+
 static int st7789v_fb_setcolreg(unsigned int regno, unsigned int red,
                                 unsigned int green, unsigned int blue,
                                 unsigned int transp, struct fb_info *info)
 {
         int ret = 1;
-        // u8 val;
+        unsigned int val;
 
         dev_dbg(info->dev,
                 "%s(regno=%u, red=0x%X, green=0x%X, blue=0x%X, trans=0x%X)\n",
                 __func__, regno, red, green, blue, transp);
 
         switch (info->fix.visual) {
+        case FB_VISUAL_TRUECOLOR:
+                if (regno < 16) {
+                        u32 *pal = info->pseudo_palette;
+
+                        val  = chan_to_field(red, &info->var.red);
+                        val |= chan_to_field(green, &info->var.green);
+                        val += chan_to_field(blue, &info->var.blue);
+
+                        pal[regno] = val;
+                        ret = 0;
+                }
+                break;
         case FB_VISUAL_MONO01:
                 dev_dbg(info->dev, "FB_VISUAL_MONO01\n");
                 break;
         }
 
+        return ret;
+}
+
+static int st7789v_fb_blank(int blank, struct fb_info *info)
+{
+        struct st7789v_par *par = info->par;
+        int ret = -EINVAL;
+
+        switch (blank) {
+        case FB_BLANK_POWERDOWN:
+        case FB_BLANK_VSYNC_SUSPEND:
+        case FB_BLANK_HSYNC_SUSPEND:
+        case FB_BLANK_NORMAL:
+                ret = st7789v_blank(par, true);
+                break;
+        case FB_BLANK_UNBLANK:
+                ret = st7789v_blank(par, false);
+                break;
+        }
         return ret;
 }
 
@@ -533,7 +607,7 @@ static int st7789v_probe(struct spi_device *spi)
         // }
 
         vmem_size = display.xres * display.yres * display.bpp / BITS_PER_BYTE;
-        dev_dbg(dev, "vmem_size : %d\n", vmem_size);
+        printk("vmem_size : %d\n", vmem_size);
         vmem = vzalloc(vmem_size);
         if (!vmem)
                 goto alloc_fail;
@@ -563,22 +637,22 @@ static int st7789v_probe(struct spi_device *spi)
         fbops->fb_fillrect = st7789v_fb_fillrect;
         fbops->fb_copyarea = st7789v_fb_copyarea;
         fbops->fb_imageblit = st7789v_fb_imageblit;
-        // fbops->fb_cursor = NULL;
         fbops->fb_setcolreg = st7789v_fb_setcolreg;
-        // fbops->fb_blank = NULL;
+        fbops->fb_blank = st7789v_fb_blank;
+        // fbops->fb_cursor = NULL;
 
-        // fbdefio->delay = HZ;
-        // fbdefio->deferred_io = st7789v_deferred_io;
-        // fb_deferred_io_init(info);
+        fbdefio->delay = HZ / 30;
+        fbdefio->deferred_io = st7789v_deferred_io;
+        fb_deferred_io_init(info);
 
         snprintf(info->fix.id, sizeof(info->fix.id), "%s", dev->driver->name);
         info->fix.type            =       FB_TYPE_PACKED_PIXELS;
-        info->fix.visual          =       FB_VISUAL_MONO01;
+        info->fix.visual          =       FB_VISUAL_TRUECOLOR;
         info->fix.xpanstep        =       0;
-        info->fix.ypanstep        =       1;
+        info->fix.ypanstep        =       0;
         info->fix.ywrapstep       =       0;
-        info->fix.accel           =       FB_ACCEL_NONE;
         info->fix.line_length     =       display.xres * display.bpp / BITS_PER_BYTE;
+        info->fix.accel           =       FB_ACCEL_NONE;
         info->fix.smem_len        =       vmem_size;
 
         info->var.rotate          =       0;
@@ -589,22 +663,31 @@ static int st7789v_probe(struct spi_device *spi)
         info->var.bits_per_pixel  =       display.bpp;
         info->var.nonstd          =       1;
 
-        info->var.grayscale     = 1;
-        info->var.transp.offset = 0;
-        info->var.transp.length = 0;
+        info->var.red.offset      =       11;
+        info->var.red.length      =       5;
+        info->var.green.offset    =       5;
+        info->var.green.length    =       6;
+        info->var.blue.offset     =       0;
+        info->var.blue.length     =       5;
+        info->var.transp.offset   =       0;
+        info->var.transp.length   =       0;
+
+        info->var.grayscale     = 0;
 
         info->flags = FBINFO_FLAG_DEFAULT | FBINFO_VIRTFB;
-        info->pseudo_palette = &pseudo_palette;
 
         /* st7789v self setup */
         par = info->par;
+        info->pseudo_palette = &par->pseudo_palette;
+
         par->fbinfo = info;
         par->spi = spi;
         par->dev = dev;
+        par->buf = par->txbuf;
         par->display = &display;
         spi_set_drvdata(spi, par);
 
-        tasklet_init(&par->task, st7789v_flush_task, (unsigned long)par);
+        // tasklet_init(&par->task, st7789v_flush_task, (unsigned long)par);
 
         spin_lock_init(&par->dirty_lock);
         init_completion(&par->complete);
@@ -612,11 +695,11 @@ static int st7789v_probe(struct spi_device *spi)
         st7789v_hw_init(par);
 
         /* framebuffer register */
-        // rc = register_framebuffer(info);
-        // if (rc < 0) {
-        //         dev_err(dev, "framebuffer register failed with %d!\n", rc);
-        //         goto alloc_fail;
-        // }
+        rc = register_framebuffer(info);
+        if (rc < 0) {
+                dev_err(dev, "framebuffer register failed with %d!\n", rc);
+                goto alloc_fail;
+        }
 
         return 0;
 
@@ -633,8 +716,8 @@ static int st7789v_remove(struct spi_device *spi)
         printk("%s\n", __func__);
         // kfree(par->buf);
         // kfree(par->txbuf.buf);
-        // unregister_framebuffer(par->fbinfo);
-        // framebuffer_release(par->fbinfo);
+        unregister_framebuffer(par->fbinfo);
+        framebuffer_release(par->fbinfo);
         return 0;
 }
 
