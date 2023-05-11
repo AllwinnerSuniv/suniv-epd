@@ -41,18 +41,20 @@ struct st7789v_display {
         u32                     xres;
         u32                     yres;
         u32                     bpp;
+        u32                     fps;
+        u32                     rotate;
 };
 
-#define SUN6I_FIFO_DEPTH 128
+#define SUNIV_FIFO_DEPTH 128
 struct st7789v_par {
 
         struct device           *dev;
         struct spi_device       *spi;
         u8                      *buf;
-        // struct {
-        //         void *buf;
-        //         size_t len;
-        // } txbuf;
+        struct {
+                void *buf;
+                size_t len;
+        } txbuf;
         struct {
                 struct gpio_desc *reset;
                 struct gpio_desc *dc;
@@ -78,9 +80,8 @@ struct st7789v_par {
 
         u32             palette_buffer[256];
         u32             pseudo_palette[16];
-        u8 txbuf[SUN6I_FIFO_DEPTH];
 };
-
+u8 txbuf[SUNIV_FIFO_DEPTH];
 // static int g_epd_3in27_flag = 0;
 
 static int fbtft_write_spi(struct st7789v_par *par, void *buf, size_t len)
@@ -119,6 +120,34 @@ static __inline int st7789v_send(struct st7789v_par *par, u8 byte, int dc)
 #define write_cmd(__par, __c) st7789v_send(__par, __c, st7789v_DC_COMMAND);
 #define write_data(__par, __d) st7789v_send(__par, __d, st7789v_DC_DATA);
 
+#define NUMARGS(...)  (sizeof((int[]){__VA_ARGS__}) / sizeof(int))
+static int st7789v_write_reg(struct st7789v_par *par, int len, ...)
+{
+        va_list args;
+        u32 arg;
+        int i;
+
+        va_start(args, len);
+
+        arg = va_arg(args, unsigned int);
+        fbtft_write_buf_dc(par, &arg, 1, 0);
+        len--;
+
+        if (len == 0)
+                return 0;
+
+        for (i = 0; i < len; i++) {
+                par->buf[i] = va_arg(args, unsigned int);
+        }
+        va_end(args);
+
+        fbtft_write_buf_dc(par, par->buf, len, 1);
+
+        return 0;
+}
+#define write_reg(par, ...) \
+        st7789v_write_reg(par, NUMARGS(__VA_ARGS__), __VA_ARGS__)
+
 static int st7789v_reset(struct st7789v_par *par)
 {
         gpiod_set_value_cansleep(par->gpio.reset, 1);
@@ -133,91 +162,49 @@ static int st7789v_reset(struct st7789v_par *par)
 static int st7789v_init_display(struct st7789v_par *par)
 {
         st7789v_reset(par);
-        mdelay(20);
+        mdelay(50);
 
-        write_cmd(par, 0x11);
-        mdelay(120);
+        write_reg(par, 0x11); //Sleep out
+        mdelay(120);     //Delay 120ms
+        //************* Start Initial Sequence **********//
+        write_reg(par, 0x36, 0x00);
 
-        write_cmd(par,  0x36);
-        write_data(par,  0x00);
+        write_reg(par, 0x3A, 0x05);
 
-        write_cmd(par,  0x3A);
-        write_data(par,  0x05); /* RGB 565 */
+        write_reg(par, 0xB2, 0x0C, 0x0C, 0x00, 0x33, 0x33);
 
-        write_cmd(par,  0xB2);
-        write_data(par,  0x0C);
-        write_data(par,  0x0C);
-        write_data(par,  0x00);
-        write_data(par,  0x33);
-        write_data(par,  0x33);
+        write_reg(par, 0xB7, 0x35);
 
-        write_cmd(par,  0xB7);
-        write_data(par,  0x35);
+        write_reg(par, 0xBB, 0x32);     //Vcom=1.35V
 
-        write_cmd(par,  0xBB);
-        write_data(par,  0x32);
+        write_reg(par, 0xC2, 0x01);
 
-        write_cmd(par,  0xC2);
-        write_data(par,  0x01);
+        write_reg(par, 0xC3, 0x15);    //GVDD=4.8V
 
-        write_cmd(par,  0xC3);
-        write_data(par,  0x15);
+        write_reg(par, 0xC4, 0x20);     //VDV, 0x20:0v
 
-        write_cmd(par,  0xC4);
-        write_data(par,  0x20);   //VDV, 0x20:0v
+        write_reg(par, 0xC6, 0x0F);   //0x0F:60Hz
 
-        write_cmd(par,  0xC6);
-        write_data(par,  0x0F);   //0x13:60Hz
+        write_reg(par, 0xD0, 0xA4, 0xA1);
 
-        write_cmd(par,  0xD0);
-        write_data(par,  0xA4);
-        write_data(par,  0xA1);
+        write_reg(par, 0xE0, 0xD0, 0x08, 0x0E, 0x09, 0x09, 0x05, 0x31, 0x33, 0x48, 0x17, 0x14,
+                  0x15, 0x31, 0x34);
 
-        write_cmd(par, 0xE0)
-        write_data(par, 0xD0);
-        write_data(par, 0x08);
-        write_data(par, 0x0E);
-        write_data(par, 0x09);
-        write_data(par, 0x09);
-        write_data(par, 0x05);
-        write_data(par, 0x31);
-        write_data(par, 0x33);
-        write_data(par, 0x48);
-        write_data(par, 0x17);
-        write_data(par, 0x14);
-        write_data(par, 0x15);
-        write_data(par, 0x31);
-        write_data(par, 0x34);
+        write_reg(par, 0xE1, 0xD0, 0x08, 0x0E, 0x09, 0x09, 0x15, 0x31, 0x33, 0x48, 0x17, 0x14,
+                  0x15, 0x31, 0x34);
 
+        write_reg(par, 0x21);
 
-        write_cmd(par, 0xE1);
-        write_data(par, 0xD0);
-        write_data(par, 0x08);
-        write_data(par, 0x0E);
-        write_data(par, 0x09);
-        write_data(par, 0x09);
-        write_data(par, 0x15);
-        write_data(par, 0x31);
-        write_data(par, 0x33);
-        write_data(par, 0x48);
-        write_data(par, 0x17);
-        write_data(par, 0x14);
-        write_data(par, 0x15);
-        write_data(par, 0x31);
-        write_data(par, 0x34);
-
-        write_cmd(par, 0x21);
-        write_cmd(par, 0x29);
-
+        write_reg(par, 0x29);
         return 0;
 }
 
 static int st7789v_blank(struct st7789v_par *par, bool on)
 {
         if (on) {
-                write_cmd(par, MIPI_DCS_SET_DISPLAY_OFF);
+                write_reg(par, MIPI_DCS_SET_DISPLAY_OFF);
         } else {
-                write_cmd(par, MIPI_DCS_SET_DISPLAY_ON);
+                write_reg(par, MIPI_DCS_SET_DISPLAY_ON);
         }
         return 0;
 }
@@ -225,21 +212,28 @@ static int st7789v_blank(struct st7789v_par *par, bool on)
 static void st7789v_set_addr_win(struct st7789v_par *par, int xs, int ys, int xe,
                                  int ye)
 {
-        // xs = xs + 20;
-        // xe = xe + 20;
-        write_cmd(par, MIPI_DCS_SET_COLUMN_ADDRESS);
-        write_data(par, (xs >> BITS_PER_BYTE) & 0xff);
-        write_data(par, (xs & 0xff));
-        write_data(par, (xe >> BITS_PER_BYTE) & 0xff);
-        write_data(par, (xe & 0xff));  /* 239 */
+        dev_dbg(par->dev, "xs = %d, xe = %d, ys = %d, ye = %d\n", xs, xe, ys, ye);
+        xs = xs + 20;
+        xe = xe + 20;
+        // write_cmd(par, MIPI_DCS_SET_COLUMN_ADDRESS);
+        // write_data(par, (xs >> BITS_PER_BYTE) & 0xff);
+        // write_data(par, (xs & 0xff));
+        // write_data(par, (xe >> BITS_PER_BYTE) & 0xff);
+        // write_data(par, (xe & 0xff));  /* 239 */
+        write_reg(par, MIPI_DCS_SET_COLUMN_ADDRESS,
+                ((xs >> BITS_PER_BYTE) & 0xff), (xs & 0xff),
+                ((xe >> BITS_PER_BYTE) & 0xff), (xe & 0xff));
 
-        write_cmd(par, MIPI_DCS_SET_PAGE_ADDRESS);
-        write_data(par, (ys >> BITS_PER_BYTE) & 0xff);
-        write_data(par, (ys & 0xff));
-        write_data(par, (ye >> BITS_PER_BYTE) & 0xff);
-        write_data(par, (ye & 0xff));  /* 279 */
+        // write_cmd(par, MIPI_DCS_SET_PAGE_ADDRESS);
+        // write_data(par, (ys >> BITS_PER_BYTE) & 0xff);
+        // write_data(par, (ys & 0xff));
+        // write_data(par, (ye >> BITS_PER_BYTE) & 0xff);
+        // write_data(par, (ye & 0xff));  /* 279 */
+        write_reg(par, MIPI_DCS_SET_PAGE_ADDRESS,
+                ((ys >> BITS_PER_BYTE) & 0xff), (ys & 0xff),
+                ((ye >> BITS_PER_BYTE) & 0xff), (ye & 0xff));
 
-        write_cmd(par, MIPI_DCS_WRITE_MEMORY_START);
+        write_reg(par, MIPI_DCS_WRITE_MEMORY_START);
 }
 
 static int st7789v_sleep(struct st7789v_par *par)
@@ -249,13 +243,13 @@ static int st7789v_sleep(struct st7789v_par *par)
 
 static int st7789v_clear(struct st7789v_par *par)
 {
-        int i;
-        st7789v_set_addr_win(par, 0, 0, 240, 320);
-        memset(par->txbuf, 0x78, 128);
+        // int i;
+        // st7789v_set_addr_win(par, 0, 0, 240, 320);
+        // memset(par->txbuf, 0x78, 128);
 
-        for (i = 0; i < (240 * 280 * 2) / 128; i++) {
-                fbtft_write_buf_dc(par, par->txbuf, 128, 1);
-        }
+        // for (i = 0; i < (240 * 280 * 2) / 128; i++) {
+        //         fbtft_write_buf_dc(par, par->txbuf, 128, 1);
+        // }
         return 0;
 }
 
@@ -362,43 +356,83 @@ static int st7789v_of_config(struct st7789v_par *par)
         /* request xres and yres from dt */
 }
 
+#define MADCTL_BGR BIT(3) /* bitmask for RGB/BGR order */
+#define MADCTL_MV BIT(5) /* bitmask for page/column order */
+#define MADCTL_MX BIT(6) /* bitmask for column address order */
+#define MADCTL_MY BIT(7) /* bitmask for page address order */
+static int st7789v_set_var(struct st7789v_par *par)
+{
+        u8 madctl_par = 0;
+
+        switch (par->fbinfo->var.rotate) {
+        case 0:
+                break;
+        case 90:
+                madctl_par |= (MADCTL_MV | MADCTL_MY);
+                break;
+        case 180:
+                madctl_par |= (MADCTL_MX | MADCTL_MY);
+                break;
+        case 270:
+                madctl_par |= (MADCTL_MV | MADCTL_MX);
+                break;
+        default:
+                return -EINVAL;
+
+        }
+
+        write_reg(par, MIPI_DCS_SET_ADDRESS_MODE, madctl_par);
+        return 0;
+}
+
 static int st7789v_hw_init(struct st7789v_par *par)
 {
         printk("%s, Display Panel initializing ...\n", __func__);
         st7789v_init_display(par);
+        st7789v_set_var(par);
         st7789v_clear(par);
-
-        // tasklet_enable(&par->task);
         return 0;
 }
 
-static const struct st7789v_display display = {
-        .xres = 240,
-        .yres = 280,
-        .bpp = 16,
-};
-
-static void write_vmem(struct st7789v_par *par, size_t offset, size_t len)
+/* TODO: device seems received wrong color format, check data transfer routine */
+static int write_vmem(struct st7789v_par *par, size_t offset, size_t len)
 {
-        dev_dbg(par->dev, "%s\n", __func__);
         u16 *vmem16;
-        size_t remain;
+        __be16 *txbuf16 = par->txbuf.buf;
+        size_t remain, to_copy, tx_array_size;
+        int i;
 
-        remain = len /2;
+        dev_dbg(par->dev, "%s, offset = %d, len = %d\n", __func__, offset, len);
+
+        remain = len / 2;
         vmem16 = (u16 *)(par->fbinfo->screen_buffer + offset);
 
         gpiod_set_value(par->gpio.dc, 1);
 
         /* non-buffered spi write */
-        fbtft_write_spi(par, vmem16, len);
+        // if (!par->txbuf.buf)
+                return fbtft_write_spi(par, vmem16, len);
+
+        // tx_array_size = par->txbuf.len / 2;
+
+        // while (remain) {
+        //         to_copy = min(tx_array_size, remain);
+        //         for (i = 0; i < to_copy; i++)
+        //                 txbuf16[i] = cpu_to_be16(vmem16[i]);
+        //         vmem16 = vmem16 + to_copy;
+
+        //         /* send batch to device */
+        //         fbtft_write_spi(par, txbuf16, to_copy);
+
+        //         remain -= to_copy;
+        // }
+        return 0;
 }
 
 static void update_display(struct st7789v_par *par, unsigned int start_line,
-                        unsigned int end_line)
+                           unsigned int end_line)
 {
-        u8 *buf = par->fbinfo->screen_buffer;
         size_t offset, len;
-        int i;
 
         // printk("%s\n", __func__);
         dev_dbg(par->dev, "%s\n", __func__);
@@ -408,7 +442,7 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
          * until next frame refreshed
          */
         start_line = 0;
-        end_line = par->fbinfo->var.yres-1;
+        end_line = par->fbinfo->var.yres - 1;
 
         st7789v_set_addr_win(par, 0, start_line, par->fbinfo->var.xres - 1, end_line);
 
@@ -517,19 +551,20 @@ static ssize_t st7789v_fb_write(struct fb_info *info, const char __user *buf,
         return 0;
 }
 
-static unsigned int chan_to_field(unsigned int chan, struct fb_bitfield *bf)
+/* from pxafb.c */
+static unsigned int chan_to_field(unsigned int chan, struct fb_bitfield *bf) 
 {
-        chan &= 0xfff;
-        chan >>= 16 - bf->length;
-        return chan << bf->offset;
+    chan &= 0xffff;
+    chan >>= 16 - bf->length;
+    return chan << bf->offset;
 }
 
 static int st7789v_fb_setcolreg(unsigned int regno, unsigned int red,
                                 unsigned int green, unsigned int blue,
                                 unsigned int transp, struct fb_info *info)
 {
-        int ret = 1;
         unsigned int val;
+        int ret = 1;
 
         dev_dbg(info->dev,
                 "%s(regno=%u, red=0x%X, green=0x%X, blue=0x%X, trans=0x%X)\n",
@@ -542,7 +577,7 @@ static int st7789v_fb_setcolreg(unsigned int regno, unsigned int red,
 
                         val  = chan_to_field(red, &info->var.red);
                         val |= chan_to_field(green, &info->var.green);
-                        val += chan_to_field(blue, &info->var.blue);
+                        val |= chan_to_field(blue, &info->var.blue);
 
                         pal[regno] = val;
                         ret = 0;
@@ -575,11 +610,21 @@ static int st7789v_fb_blank(int blank, struct fb_info *info)
         return ret;
 }
 
+
+static const struct st7789v_display display = {
+        .xres = 240,
+        .yres = 280,
+        .bpp = 16,
+        .fps = 60,
+        .rotate = 90,
+};
+
 static int st7789v_probe(struct spi_device *spi)
 {
         struct device *dev = &spi->dev;
         struct st7789v_par *par;
         struct fb_deferred_io *fbdefio;
+        int width, height, bpp, rotate;
         struct fb_info *info;
         struct fb_ops *fbops;
         u8 *vmem = NULL;
@@ -588,25 +633,22 @@ static int st7789v_probe(struct spi_device *spi)
 
         printk("%s\n", __func__);
         /* memory resource alloc */
-        // display = kmalloc(sizeof(struct st7789v_display), GFP_KERNEL);
-        // if (!display) {
-        //         dev_err(dev, "failed to alloc par memory!\n");
-        //         return -ENOMEM;
-        // }
 
-        // par->buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
-        // if (!par->buf) {
-        //         dev_err(dev, "failed to alloc buf memory!\n");
-        //         return -ENOMEM;
-        // }
+        rotate = display.rotate;
+        bpp = display.bpp;
+        switch(rotate) {
+        case 90:
+        case 270:
+                width = display.yres;
+                height = display.xres;
+                break;
+        default:
+                width = display.xres;
+                height = display.yres;
+                break;
+        }
 
-        // par->txbuf.buf = kmalloc(SPI_BUF_LEN, GFP_KERNEL);
-        // if (!par->txbuf.buf) {
-        //         dev_err(dev, "failed to alloc txbuf!\n");
-        //         return -ENOMEM;
-        // }
-
-        vmem_size = display.xres * display.yres * display.bpp / BITS_PER_BYTE;
+        vmem_size = (width * height * bpp) / BITS_PER_BYTE;
         printk("vmem_size : %d\n", vmem_size);
         vmem = vzalloc(vmem_size);
         if (!vmem)
@@ -641,7 +683,7 @@ static int st7789v_probe(struct spi_device *spi)
         fbops->fb_blank = st7789v_fb_blank;
         // fbops->fb_cursor = NULL;
 
-        fbdefio->delay = HZ / 30;
+        fbdefio->delay = HZ / display.fps;
         fbdefio->deferred_io = st7789v_deferred_io;
         fb_deferred_io_init(info);
 
@@ -651,16 +693,16 @@ static int st7789v_probe(struct spi_device *spi)
         info->fix.xpanstep        =       0;
         info->fix.ypanstep        =       0;
         info->fix.ywrapstep       =       0;
-        info->fix.line_length     =       display.xres * display.bpp / BITS_PER_BYTE;
+        info->fix.line_length     =       width * bpp / BITS_PER_BYTE;
         info->fix.accel           =       FB_ACCEL_NONE;
         info->fix.smem_len        =       vmem_size;
 
-        info->var.rotate          =       0;
-        info->var.xres            =       display.xres;
-        info->var.yres            =       display.yres;
+        info->var.rotate          =       rotate;
+        info->var.xres            =       width;
+        info->var.yres            =       height;
         info->var.xres_virtual    =       info->var.xres;
         info->var.yres_virtual    =       info->var.yres;
-        info->var.bits_per_pixel  =       display.bpp;
+        info->var.bits_per_pixel  =       bpp;
         info->var.nonstd          =       1;
 
         info->var.red.offset      =       11;
@@ -683,7 +725,20 @@ static int st7789v_probe(struct spi_device *spi)
         par->fbinfo = info;
         par->spi = spi;
         par->dev = dev;
-        par->buf = par->txbuf;
+
+        par->buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
+        if (!par->buf) {
+                dev_err(dev, "failed to alloc buf memory!\n");
+                return -ENOMEM;
+        }
+
+        par->txbuf.buf = kmalloc(SUNIV_FIFO_DEPTH, GFP_KERNEL);
+        if (!par->txbuf.buf) {
+                dev_err(dev, "failed to alloc txbuf!\n");
+                return -ENOMEM;
+        }
+        par->txbuf.len = SUNIV_FIFO_DEPTH;
+
         par->display = &display;
         spi_set_drvdata(spi, par);
 
@@ -714,8 +769,8 @@ static int st7789v_remove(struct spi_device *spi)
         struct st7789v_par *par = spi_get_drvdata(spi);
 
         printk("%s\n", __func__);
-        // kfree(par->buf);
-        // kfree(par->txbuf.buf);
+        kfree(par->buf);
+        kfree(par->txbuf.buf);
         unregister_framebuffer(par->fbinfo);
         framebuffer_release(par->fbinfo);
         return 0;
