@@ -62,23 +62,23 @@ struct st7789v_par {
                 struct gpio_desc *cs;
                 struct gpio_desc *blk;
         } gpio;
-
+        
         spinlock_t              dirty_lock;
         struct completion       complete;
-
+        
         /* device specific */
         u32                     refr_mode;
         u32                     wait;
         u32                     busy;
-
+        
         const struct st7789v_operations        *tftops;
         const struct st7789v_display           *display;
-
+        
         struct tasklet_struct task;
-
+        
         struct fb_info          *fbinfo;
         struct fb_ops           *fbops;
-
+        
         u32             palette_buffer[256];
         u32             pseudo_palette[16];
 };
@@ -92,7 +92,7 @@ static int fbtft_write_spi(struct st7789v_par *par, void *buf, size_t len)
                 .len = len,
         };
         struct spi_message m;
-
+        
         spi_message_init(&m);
         spi_message_add_tail(&t, &m);
         return spi_sync(par->spi, &m);
@@ -101,13 +101,13 @@ static int fbtft_write_spi(struct st7789v_par *par, void *buf, size_t len)
 static int fbtft_write_buf_dc(struct st7789v_par *par, void *buf, size_t len, int dc)
 {
         int rc;
-
+        
         gpiod_set_value(par->gpio.dc, dc);
-
+        
         rc = fbtft_write_spi(par, buf, len);
         if (rc < 0)
                 dev_err(par->dev, "write() failed and returned %d\n", rc);
-
+                
         return rc;
 }
 
@@ -127,23 +127,23 @@ static int st7789v_write_reg(struct st7789v_par *par, int len, ...)
         va_list args;
         u32 arg;
         int i;
-
+        
         va_start(args, len);
-
+        
         arg = va_arg(args, unsigned int);
         fbtft_write_buf_dc(par, &arg, 1, 0);
         len--;
-
+        
         if (len == 0)
                 return 0;
-
+                
         for (i = 0; i < len; i++) {
                 par->buf[i] = va_arg(args, unsigned int);
         }
         va_end(args);
-
+        
         fbtft_write_buf_dc(par, par->buf, len, 1);
-
+        
         return 0;
 }
 #define write_reg(par, ...) \
@@ -164,38 +164,38 @@ static int st7789v_init_display(struct st7789v_par *par)
 {
         st7789v_reset(par);
         mdelay(50);
-
+        
         write_reg(par, 0x11); //Sleep out
         mdelay(120);     //Delay 120ms
         //************* Start Initial Sequence **********//
         write_reg(par, 0x36, 0x00);
-
+        
         write_reg(par, 0x3A, 0x05);
-
+        
         write_reg(par, 0xB2, 0x0C, 0x0C, 0x00, 0x33, 0x33);
-
+        
         write_reg(par, 0xB7, 0x35);
-
+        
         write_reg(par, 0xBB, 0x32);     //Vcom=1.35V
-
+        
         write_reg(par, 0xC2, 0x01);
-
+        
         write_reg(par, 0xC3, 0x15);    //GVDD=4.8V
-
+        
         write_reg(par, 0xC4, 0x20);     //VDV, 0x20:0v
-
+        
         write_reg(par, 0xC6, 0x0F);   //0x0F:60Hz
-
+        
         write_reg(par, 0xD0, 0xA4, 0xA1);
-
+        
         write_reg(par, 0xE0, 0xD0, 0x08, 0x0E, 0x09, 0x09, 0x05, 0x31, 0x33, 0x48, 0x17, 0x14,
                   0x15, 0x31, 0x34);
-
+                  
         write_reg(par, 0xE1, 0xD0, 0x08, 0x0E, 0x09, 0x09, 0x15, 0x31, 0x33, 0x48, 0x17, 0x14,
                   0x15, 0x31, 0x34);
-
+                  
         write_reg(par, 0x21);
-
+        
         write_reg(par, 0x29);
         return 0;
 }
@@ -210,21 +210,21 @@ static int st7789v_blank(struct st7789v_par *par, bool on)
 }
 
 static int st7789v_set_addr_win(struct st7789v_par *par, int xs, int ys, int xe,
-                                 int ye)
+                                int ye)
 {
         dev_dbg(par->dev, "xs = %d, xe = %d, ys = %d, ye = %d\n", xs, xe, ys, ye);
         xs = xs + 20;
         xe = xe + 20;
         write_reg(par, MIPI_DCS_SET_COLUMN_ADDRESS,
-                ((xs >> BITS_PER_BYTE) & 0xff), (xs & 0xff),
-                ((xe >> BITS_PER_BYTE) & 0xff), (xe & 0xff));
-
+                  ((xs >> BITS_PER_BYTE) & 0xff), (xs & 0xff),
+                  ((xe >> BITS_PER_BYTE) & 0xff), (xe & 0xff));
+                  
         write_reg(par, MIPI_DCS_SET_PAGE_ADDRESS,
-                ((ys >> BITS_PER_BYTE) & 0xff), (ys & 0xff),
-                ((ye >> BITS_PER_BYTE) & 0xff), (ye & 0xff));
-
+                  ((ys >> BITS_PER_BYTE) & 0xff), (ys & 0xff),
+                  ((ye >> BITS_PER_BYTE) & 0xff), (ye & 0xff));
+                  
         write_reg(par, MIPI_DCS_WRITE_MEMORY_START);
-
+        
         return 0;
 }
 
@@ -234,7 +234,7 @@ static int st7789v_idle(struct st7789v_par *par, bool on)
                 write_reg(par, MIPI_DCS_EXIT_IDLE_MODE);
         else
                 write_reg(par, MIPI_DCS_EXIT_IDLE_MODE);
-
+                
         return 0;
 }
 
@@ -247,16 +247,16 @@ static int st7789v_sleep(struct st7789v_par *par, bool on)
                 write_reg(par, MIPI_DCS_EXIT_SLEEP_MODE);
                 write_reg(par, MIPI_DCS_SET_DISPLAY_ON);
         }
-
+        
         return 0;
 }
 
-static int st7789v_clear(struct st7789v_par *par)
+static int __maybe_unused st7789v_clear(struct st7789v_par *par)
 {
         // int i;
         // st7789v_set_addr_win(par, 0, 0, 240, 320);
         // memset(par->txbuf, 0x78, 128);
-
+        
         // for (i = 0; i < (240 * 280 * 2) / 128; i++) {
         //         fbtft_write_buf_dc(par, par->txbuf, 128, 1);
         // }
@@ -280,7 +280,7 @@ static int st7789v_request_one_gpio(struct st7789v_par *par,
         struct device_node *np = dev->of_node;
         int gpio, flags, rc = 0;
         enum of_gpio_flags of_flags;
-
+        
         if (of_find_property(np, name, NULL)) {
                 gpio = of_get_named_gpio_flags(np, name, index, &of_flags);
                 if (gpio == -ENOENT)
@@ -292,7 +292,7 @@ static int st7789v_request_one_gpio(struct st7789v_par *par,
                                 "failed to get '%s' from DT\n", name);
                         return gpio;
                 }
-
+                
                 flags = (of_flags & OF_GPIO_ACTIVE_LOW) ? GPIOF_OUT_INIT_LOW :
                         GPIOF_OUT_INIT_HIGH;
                 rc = devm_gpio_request_one(dev, gpio, flags,
@@ -308,7 +308,7 @@ static int st7789v_request_one_gpio(struct st7789v_par *par,
                 pr_debug("%s : '%s' = GPIO%d\n",
                          __func__, name, gpio);
         }
-
+        
         return rc;
 }
 
@@ -316,7 +316,7 @@ static int st7789v_request_gpios(struct st7789v_par *par)
 {
         int rc;
         pr_debug("%s, configure from dt\n", __func__);
-
+        
         rc = st7789v_request_one_gpio(par, "reset-gpios", 0, &par->gpio.reset);
         if (rc)
                 return rc;
@@ -329,27 +329,27 @@ static int st7789v_request_gpios(struct st7789v_par *par)
         rc = st7789v_request_one_gpio(par, "cs-gpios", 0, &par->gpio.cs);
         if (rc)
                 return rc;
-
+                
         return 0;
 }
 
 /* returns 0 if the property is not present */
-static u32 fbtft_property_value(struct device *dev, const char *propname)
+static u32 __maybe_unused fbtft_property_value(struct device *dev, const char *propname)
 {
         int ret;
         u32 val = 0;
-
+        
         ret = device_property_read_u32(dev, propname, &val);
         if (ret == 0)
                 dev_info(dev, "%s: %s = %u\n", __func__, propname, val);
-
+                
         return val;
 }
 
 static int st7789v_of_config(struct st7789v_par *par)
 {
         int rc;
-
+        
         printk("%s\n", __func__);
         rc = st7789v_request_gpios(par);
         if (rc) {
@@ -357,7 +357,7 @@ static int st7789v_of_config(struct st7789v_par *par)
                 return rc;
         }
         return 0;
-
+        
         /* request xres and yres from dt */
 }
 
@@ -368,7 +368,7 @@ static int st7789v_of_config(struct st7789v_par *par)
 static int st7789v_set_var(struct st7789v_par *par)
 {
         u8 madctl_par = 0;
-
+        
         switch (par->fbinfo->var.rotate) {
         case 0:
                 break;
@@ -383,9 +383,9 @@ static int st7789v_set_var(struct st7789v_par *par)
                 break;
         default:
                 return -EINVAL;
-
+                
         }
-
+        
         write_reg(par, MIPI_DCS_SET_ADDRESS_MODE, madctl_par);
         return 0;
 }
@@ -396,7 +396,7 @@ static int st7789v_hw_init(struct st7789v_par *par)
         st7789v_init_display(par);
         st7789v_set_var(par);
         st7789v_clear(par);
-
+        
         return 0;
 }
 
@@ -404,32 +404,34 @@ static int st7789v_hw_init(struct st7789v_par *par)
 static int write_vmem(struct st7789v_par *par, size_t offset, size_t len)
 {
         u16 *vmem16;
-        __be16 *txbuf16 = par->txbuf.buf;
-        size_t remain, to_copy, tx_array_size;
-        int i;
-
+        __maybe_unused __be16 *txbuf16 = par->txbuf.buf;
+        size_t remain;
+        __maybe_unused size_t to_copy;
+        __maybe_unused size_t tx_array_size;
+        __maybe_unused int i;
+        
         dev_dbg(par->dev, "%s, offset = %d, len = %d\n", __func__, offset, len);
-
+        
         remain = len / 2;
         vmem16 = (u16 *)(par->fbinfo->screen_buffer + offset);
-
+        
         gpiod_set_value(par->gpio.dc, 1);
-
+        
         /* non-buffered spi write */
         // if (!par->txbuf.buf)
-                return fbtft_write_spi(par, vmem16, len);
-
+        return fbtft_write_spi(par, vmem16, len);
+        
         // tx_array_size = par->txbuf.len / 2;
-
+        
         // while (remain) {
         //         to_copy = min(tx_array_size, remain);
         //         for (i = 0; i < to_copy; i++)
         //                 txbuf16[i] = cpu_to_be16(vmem16[i]);
         //         vmem16 = vmem16 + to_copy;
-
+        
         //         /* send batch to device */
         //         fbtft_write_spi(par, txbuf16, to_copy);
-
+        
         //         remain -= to_copy;
         // }
         return 0;
@@ -439,10 +441,10 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
                            unsigned int end_line)
 {
         size_t offset, len;
-
+        
         // printk("%s\n", __func__);
         dev_dbg(par->dev, "%s\n", __func__);
-
+        
         par->tftops->idle(par, false);
         /* write vmem to display then call refresh routine */
         /*
@@ -451,33 +453,33 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
          */
         start_line = 0;
         end_line = par->fbinfo->var.yres - 1;
-
+        
         st7789v_set_addr_win(par, 0, start_line, par->fbinfo->var.xres - 1, end_line);
-
+        
         offset = start_line * par->fbinfo->fix.line_length;
         len = (end_line - start_line + 1) * par->fbinfo->fix.line_length;
-
+        
         write_vmem(par, offset, len);
-
+        
         par->tftops->idle(par, true);
 }
 
 static void st7789v_mkdirty(struct fb_info *info, int y, int height)
 {
-        struct st7789v_par *par = info->par;
+        __maybe_unused struct st7789v_par *par = info->par;
         struct fb_deferred_io *fbdefio = info->fbdefio;
-
+        
         dev_dbg(info->dev, "%s\n", __func__);
-
+        
         if (y == -1) {
                 y = 0;
                 height = info->var.yres;
         }
-
+        
         /* mark dirty lines here, but update all for now */
         // spin_lock(&par->dirty_lock);
         // spin_unlock(&par->dirty_lock);
-
+        
         schedule_delayed_work(&info->deferred_work, fbdefio->delay);
 }
 
@@ -489,7 +491,7 @@ static void st7789v_deferred_io(struct fb_info *info, struct list_head *pagelist
         unsigned long index;
         struct page *page;
         int count = 0;
-
+        
         list_for_each_entry(page, pagelist, lru) {
                 count++;
                 index = page->index << PAGE_SHIFT;
@@ -505,7 +507,7 @@ static void st7789v_deferred_io(struct fb_info *info, struct list_head *pagelist
                 if (y_high > dirty_lines_end)
                         dirty_lines_end = y_high;
         }
-
+        
         update_display(par, dirty_lines_start, dirty_lines_end);
 }
 
@@ -515,7 +517,7 @@ static void st7789v_fb_fillrect(struct fb_info *info,
         dev_dbg(info->dev,
                 "%s: dx=%d, dy=%d, width=%d, height=%d\n",
                 __func__, rect->dx, rect->dy, rect->width, rect->height);
-
+                
         sys_fillrect(info, rect);
         st7789v_mkdirty(info, rect->dy, rect->height);
 }
@@ -526,7 +528,7 @@ static void st7789v_fb_copyarea(struct fb_info *info,
         dev_dbg(info->dev,
                 "%s: dx=%d, dy=%d, width=%d, height=%d\n",
                 __func__,  area->dx, area->dy, area->width, area->height);
-
+                
         sys_copyarea(info, area);
         st7789v_mkdirty(info, area->dy, area->height);
 }
@@ -538,7 +540,7 @@ static void st7789v_fb_imageblit(struct fb_info *info,
                 "%s: dx=%d, dy=%d, width=%d, height=%d\n",
                 __func__,  image->dx, image->dy, image->width, image->height);
         sys_imageblit(info, image);
-
+        
         st7789v_mkdirty(info, image->dy, image->height);
 }
 
@@ -548,19 +550,19 @@ static ssize_t st7789v_fb_write(struct fb_info *info, const char __user *buf,
         ssize_t res;
         dev_dbg(info->dev,
                 "%s: count=%zd, ppos=%llu\n", __func__,  count, *ppos);
-
+                
         res = fb_sys_write(info, buf, count, ppos);
-
+        
         st7789v_mkdirty(info, -1, 0);
         return 0;
 }
 
 /* from pxafb.c */
-static unsigned int chan_to_field(unsigned int chan, struct fb_bitfield *bf) 
+static unsigned int chan_to_field(unsigned int chan, struct fb_bitfield *bf)
 {
-    chan &= 0xffff;
-    chan >>= 16 - bf->length;
-    return chan << bf->offset;
+        chan &= 0xffff;
+        chan >>= 16 - bf->length;
+        return chan << bf->offset;
 }
 
 static int st7789v_fb_setcolreg(unsigned int regno, unsigned int red,
@@ -569,20 +571,20 @@ static int st7789v_fb_setcolreg(unsigned int regno, unsigned int red,
 {
         unsigned int val;
         int ret = 1;
-
+        
         dev_dbg(info->dev,
                 "%s(regno=%u, red=0x%X, green=0x%X, blue=0x%X, trans=0x%X)\n",
                 __func__, regno, red, green, blue, transp);
-
+                
         switch (info->fix.visual) {
         case FB_VISUAL_TRUECOLOR:
                 if (regno < 16) {
                         u32 *pal = info->pseudo_palette;
-
+                        
                         val  = chan_to_field(red, &info->var.red);
                         val |= chan_to_field(green, &info->var.green);
                         val |= chan_to_field(blue, &info->var.blue);
-
+                        
                         pal[regno] = val;
                         ret = 0;
                 }
@@ -591,7 +593,7 @@ static int st7789v_fb_setcolreg(unsigned int regno, unsigned int red,
                 dev_dbg(info->dev, "FB_VISUAL_MONO01\n");
                 break;
         }
-
+        
         return ret;
 }
 
@@ -599,7 +601,7 @@ static int st7789v_fb_blank(int blank, struct fb_info *info)
 {
         struct st7789v_par *par = info->par;
         int ret = -EINVAL;
-
+        
         switch (blank) {
         case FB_BLANK_POWERDOWN:
         case FB_BLANK_VSYNC_SUSPEND:
@@ -633,13 +635,13 @@ static int st7789v_probe(struct spi_device *spi)
         u8 *vmem = NULL;
         int vmem_size;
         int rc;
-
+        
         printk("%s\n", __func__);
         /* memory resource alloc */
-
+        
         rotate = display.rotate;
         bpp = display.bpp;
-        switch(rotate) {
+        switch (rotate) {
         case 90:
         case 270:
                 width = display.yres;
@@ -650,32 +652,32 @@ static int st7789v_probe(struct spi_device *spi)
                 height = display.yres;
                 break;
         }
-
+        
         vmem_size = (width * height * bpp) / BITS_PER_BYTE;
         printk("vmem_size : %d\n", vmem_size);
         vmem = vzalloc(vmem_size);
         if (!vmem)
                 goto alloc_fail;
-
+                
         fbops = devm_kzalloc(dev, sizeof(struct fb_ops), GFP_KERNEL);
         if (!fbops)
                 goto alloc_fail;
-
+                
         fbdefio = devm_kzalloc(dev, sizeof(struct fb_deferred_io), GFP_KERNEL);
         if (!fbdefio)
                 goto alloc_fail;
-
+                
         /* framebuffer info setup */
         info = framebuffer_alloc(sizeof(struct st7789v_par), dev);
         if (!info) {
                 dev_err(dev, "failed to alloc framebuffer!\n");
                 return -ENOMEM;
         }
-
+        
         info->screen_buffer = vmem;
         info->fbops = fbops;
         info->fbdefio = fbdefio;
-
+        
         fbops->owner = dev->driver->owner;
         fbops->fb_read      = fb_sys_read;
         fbops->fb_write     = st7789v_fb_write;
@@ -684,11 +686,11 @@ static int st7789v_probe(struct spi_device *spi)
         fbops->fb_copyarea  = st7789v_fb_copyarea;
         fbops->fb_imageblit = st7789v_fb_imageblit;
         fbops->fb_setcolreg = st7789v_fb_setcolreg;
-
+        
         fbdefio->delay = HZ / display.fps;
         fbdefio->deferred_io = st7789v_deferred_io;
         fb_deferred_io_init(info);
-
+        
         snprintf(info->fix.id, sizeof(info->fix.id), "%s", dev->driver->name);
         info->fix.type            =       FB_TYPE_PACKED_PIXELS;
         info->fix.visual          =       FB_VISUAL_TRUECOLOR;
@@ -698,7 +700,7 @@ static int st7789v_probe(struct spi_device *spi)
         info->fix.line_length     =       width * bpp / BITS_PER_BYTE;
         info->fix.accel           =       FB_ACCEL_NONE;
         info->fix.smem_len        =       vmem_size;
-
+        
         info->var.rotate          =       rotate;
         info->var.xres            =       width;
         info->var.yres            =       height;
@@ -706,7 +708,7 @@ static int st7789v_probe(struct spi_device *spi)
         info->var.yres_virtual    =       info->var.yres;
         info->var.bits_per_pixel  =       bpp;
         info->var.nonstd          =       1;
-
+        
         info->var.red.offset      =       11;
         info->var.red.length      =       5;
         info->var.green.offset    =       5;
@@ -715,61 +717,61 @@ static int st7789v_probe(struct spi_device *spi)
         info->var.blue.length     =       5;
         info->var.transp.offset   =       0;
         info->var.transp.length   =       0;
-
+        
         info->var.grayscale     = 0;
-
+        
         info->flags = FBINFO_FLAG_DEFAULT | FBINFO_VIRTFB;
-
+        
         /* st7789v self setup */
         par = info->par;
         info->pseudo_palette = &par->pseudo_palette;
-
+        
         par->fbinfo = info;
         par->spi = spi;
         par->dev = dev;
-
+        
         par->buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
         if (!par->buf) {
                 dev_err(dev, "failed to alloc buf memory!\n");
                 return -ENOMEM;
         }
-
+        
         par->txbuf.buf = kmalloc(SUNIV_FIFO_DEPTH, GFP_KERNEL);
         if (!par->txbuf.buf) {
                 dev_err(dev, "failed to alloc txbuf!\n");
                 return -ENOMEM;
         }
         par->txbuf.len = SUNIV_FIFO_DEPTH;
-
+        
         par->tftops = &default_st7789v_ops;
         par->display = &display;
         dev_set_drvdata(dev, par);
         spi_set_drvdata(spi, par);
-
+        
         spin_lock_init(&par->dirty_lock);
         init_completion(&par->complete);
         st7789v_of_config(par);
         st7789v_hw_init(par);
-
+        
         /* framebuffer register */
         rc = register_framebuffer(info);
         if (rc < 0) {
                 dev_err(dev, "framebuffer register failed with %d!\n", rc);
                 goto alloc_fail;
         }
-
+        
         return 0;
-
+        
 alloc_fail:
         vfree(vmem);
-
+        
         return 0;
 }
 
 static int st7789v_remove(struct spi_device *spi)
 {
         struct st7789v_par *par = spi_get_drvdata(spi);
-
+        
         printk("%s\n", __func__);
         kfree(par->buf);
         kfree(par->txbuf.buf);
@@ -781,18 +783,27 @@ static int st7789v_remove(struct spi_device *spi)
 static int __maybe_unused st7789v_runtime_suspend(struct device *dev)
 {
         struct st7789v_par *par = dev_get_drvdata(dev);
-
+        
         par->tftops->sleep(par, true);
-
+        
         return 0;
 }
 
 static int __maybe_unused st7789v_runtime_resume(struct device *dev)
 {
         struct st7789v_par *par = dev_get_drvdata(dev);
-
+        
         par->tftops->sleep(par, false);
+        
+        return 0;
+}
 
+static int __maybe_unused st7789v_runtime_idle(struct device *dev)
+{
+        struct st7789v_par *par = dev_get_drvdata(dev);
+        
+        par->tftops->idle(par, true);
+        
         return 0;
 }
 
@@ -810,7 +821,9 @@ MODULE_DEVICE_TABLE(spi, st7789v_spi_ids);
 
 #if CONFIG_PM
 static const struct dev_pm_ops st7789v_pm_ops = {
-        SET_RUNTIME_PM_OPS(NULL, NULL, NULL)
+        SET_RUNTIME_PM_OPS(st7789v_runtime_suspend,
+                st7789v_runtime_resume,
+                st7789v_runtime_idle)
 };
 #else
 static const struct dev_pm_ops st7789v_pm_ops = {
