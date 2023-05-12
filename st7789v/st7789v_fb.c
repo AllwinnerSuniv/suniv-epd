@@ -30,11 +30,12 @@
 struct st7789v_par;
 
 struct st7789v_operations {
-        int (*refresh)(struct st7789v_par *par, u8 mode);
         int (*reset)(struct st7789v_par *par);
         int (*clear)(struct st7789v_par *par);
-        int (*sleep)(struct st7789v_par *par);
-        int (*is_busy)(struct st7789v_par *par);
+        int (*idle)(struct st7789v_par *par, bool on);
+        int (*blank)(struct st7789v_par *par, bool on);
+        int (*sleep)(struct st7789v_par *par, bool on);
+        int (*set_addr_win)(struct st7789v_par *par, int xs, int ys, int xe, int ye);
 };
 
 struct st7789v_display {
@@ -70,7 +71,7 @@ struct st7789v_par {
         u32                     wait;
         u32                     busy;
 
-        struct st7789v_operations        ops;
+        const struct st7789v_operations        *tftops;
         const struct st7789v_display           *display;
 
         struct tasklet_struct task;
@@ -201,43 +202,52 @@ static int st7789v_init_display(struct st7789v_par *par)
 
 static int st7789v_blank(struct st7789v_par *par, bool on)
 {
-        if (on) {
+        if (on)
                 write_reg(par, MIPI_DCS_SET_DISPLAY_OFF);
-        } else {
+        else
                 write_reg(par, MIPI_DCS_SET_DISPLAY_ON);
-        }
         return 0;
 }
 
-static void st7789v_set_addr_win(struct st7789v_par *par, int xs, int ys, int xe,
+static int st7789v_set_addr_win(struct st7789v_par *par, int xs, int ys, int xe,
                                  int ye)
 {
         dev_dbg(par->dev, "xs = %d, xe = %d, ys = %d, ye = %d\n", xs, xe, ys, ye);
         xs = xs + 20;
         xe = xe + 20;
-        // write_cmd(par, MIPI_DCS_SET_COLUMN_ADDRESS);
-        // write_data(par, (xs >> BITS_PER_BYTE) & 0xff);
-        // write_data(par, (xs & 0xff));
-        // write_data(par, (xe >> BITS_PER_BYTE) & 0xff);
-        // write_data(par, (xe & 0xff));  /* 239 */
         write_reg(par, MIPI_DCS_SET_COLUMN_ADDRESS,
                 ((xs >> BITS_PER_BYTE) & 0xff), (xs & 0xff),
                 ((xe >> BITS_PER_BYTE) & 0xff), (xe & 0xff));
 
-        // write_cmd(par, MIPI_DCS_SET_PAGE_ADDRESS);
-        // write_data(par, (ys >> BITS_PER_BYTE) & 0xff);
-        // write_data(par, (ys & 0xff));
-        // write_data(par, (ye >> BITS_PER_BYTE) & 0xff);
-        // write_data(par, (ye & 0xff));  /* 279 */
         write_reg(par, MIPI_DCS_SET_PAGE_ADDRESS,
                 ((ys >> BITS_PER_BYTE) & 0xff), (ys & 0xff),
                 ((ye >> BITS_PER_BYTE) & 0xff), (ye & 0xff));
 
         write_reg(par, MIPI_DCS_WRITE_MEMORY_START);
+
+        return 0;
 }
 
-static int st7789v_sleep(struct st7789v_par *par)
+static int st7789v_idle(struct st7789v_par *par, bool on)
 {
+        if (on)
+                write_reg(par, MIPI_DCS_EXIT_IDLE_MODE);
+        else
+                write_reg(par, MIPI_DCS_EXIT_IDLE_MODE);
+
+        return 0;
+}
+
+static int st7789v_sleep(struct st7789v_par *par, bool on)
+{
+        if (on) {
+                write_reg(par, MIPI_DCS_SET_DISPLAY_OFF);
+                write_reg(par, MIPI_DCS_ENTER_SLEEP_MODE);
+        } else {
+                write_reg(par, MIPI_DCS_EXIT_SLEEP_MODE);
+                write_reg(par, MIPI_DCS_SET_DISPLAY_ON);
+        }
+
         return 0;
 }
 
@@ -254,18 +264,13 @@ static int st7789v_clear(struct st7789v_par *par)
 }
 
 static const struct st7789v_operations default_st7789v_ops = {
+        .idle  = st7789v_idle,
         .clear = st7789v_clear,
-        .reset = NULL,
-        .is_busy = NULL,
-        .sleep = NULL,
+        .blank = st7789v_blank,
+        .reset = st7789v_reset,
+        .sleep = st7789v_sleep,
+        .set_addr_win = st7789v_set_addr_win,
 };
-
-static const int st7789v_show_img(struct st7789v_par *par, const u8 *img)
-{
-        int i;
-
-        return 0;
-}
 
 static int st7789v_request_one_gpio(struct st7789v_par *par,
                                     const char *name, int index,
@@ -391,6 +396,7 @@ static int st7789v_hw_init(struct st7789v_par *par)
         st7789v_init_display(par);
         st7789v_set_var(par);
         st7789v_clear(par);
+
         return 0;
 }
 
@@ -436,6 +442,8 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
 
         // printk("%s\n", __func__);
         dev_dbg(par->dev, "%s\n", __func__);
+
+        par->tftops->idle(par, false);
         /* write vmem to display then call refresh routine */
         /*
          * when this was called, driver should wait for busy pin comes low
@@ -450,13 +458,9 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
         len = (end_line - start_line + 1) * par->fbinfo->fix.line_length;
 
         write_vmem(par, offset, len);
-}
 
-// static void st7789v_flush_task(unsigned long data)
-// {
-//         // int timeout;
-//         struct st7789v_par *par = (struct st7789v_par *)data;
-// }
+        par->tftops->idle(par, true);
+}
 
 static void st7789v_mkdirty(struct fb_info *info, int y, int height)
 {
@@ -610,7 +614,6 @@ static int st7789v_fb_blank(int blank, struct fb_info *info)
         return ret;
 }
 
-
 static const struct st7789v_display display = {
         .xres = 240,
         .yres = 280,
@@ -674,14 +677,13 @@ static int st7789v_probe(struct spi_device *spi)
         info->fbdefio = fbdefio;
 
         fbops->owner = dev->driver->owner;
-        fbops->fb_read = fb_sys_read;
-        fbops->fb_write = st7789v_fb_write;
-        fbops->fb_fillrect = st7789v_fb_fillrect;
-        fbops->fb_copyarea = st7789v_fb_copyarea;
+        fbops->fb_read      = fb_sys_read;
+        fbops->fb_write     = st7789v_fb_write;
+        fbops->fb_blank     = st7789v_fb_blank;
+        fbops->fb_fillrect  = st7789v_fb_fillrect;
+        fbops->fb_copyarea  = st7789v_fb_copyarea;
         fbops->fb_imageblit = st7789v_fb_imageblit;
         fbops->fb_setcolreg = st7789v_fb_setcolreg;
-        fbops->fb_blank = st7789v_fb_blank;
-        // fbops->fb_cursor = NULL;
 
         fbdefio->delay = HZ / display.fps;
         fbdefio->deferred_io = st7789v_deferred_io;
@@ -739,10 +741,10 @@ static int st7789v_probe(struct spi_device *spi)
         }
         par->txbuf.len = SUNIV_FIFO_DEPTH;
 
+        par->tftops = &default_st7789v_ops;
         par->display = &display;
+        dev_set_drvdata(dev, par);
         spi_set_drvdata(spi, par);
-
-        // tasklet_init(&par->task, st7789v_flush_task, (unsigned long)par);
 
         spin_lock_init(&par->dirty_lock);
         init_completion(&par->complete);
@@ -776,6 +778,24 @@ static int st7789v_remove(struct spi_device *spi)
         return 0;
 }
 
+static int __maybe_unused st7789v_runtime_suspend(struct device *dev)
+{
+        struct st7789v_par *par = dev_get_drvdata(dev);
+
+        par->tftops->sleep(par, true);
+
+        return 0;
+}
+
+static int __maybe_unused st7789v_runtime_resume(struct device *dev)
+{
+        struct st7789v_par *par = dev_get_drvdata(dev);
+
+        par->tftops->sleep(par, false);
+
+        return 0;
+}
+
 static const struct of_device_id st7789v_dt_ids[] = {
         { .compatible = "ultrachip,uc8253" },
         { /* KEEP THIS */ },
@@ -788,14 +808,25 @@ static const struct spi_device_id st7789v_spi_ids[] = {
 };
 MODULE_DEVICE_TABLE(spi, st7789v_spi_ids);
 
+#if CONFIG_PM
+static const struct dev_pm_ops st7789v_pm_ops = {
+        SET_RUNTIME_PM_OPS(NULL, NULL, NULL)
+};
+#else
+static const struct dev_pm_ops st7789v_pm_ops = {
+        SET_RUNTIME_PM_OPS(NULL, NULL, NULL)
+};
+#endif
+
 static struct spi_driver st7789v_drv = {
-        .driver = {
-                .name = DRV_NAME,
-                .of_match_table = of_match_ptr(st7789v_dt_ids),
-        },
+        .probe    = st7789v_probe,
+        .remove   = st7789v_remove,
         .id_table = st7789v_spi_ids,
-        .probe = st7789v_probe,
-        .remove = st7789v_remove,
+        .driver   = {
+                .name           = DRV_NAME,
+                .of_match_table = of_match_ptr(st7789v_dt_ids),
+                .pm             = &st7789v_pm_ops
+        },
 };
 
 module_spi_driver(st7789v_drv);
