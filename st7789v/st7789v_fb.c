@@ -44,6 +44,9 @@ struct st7789v_display {
         u32                     bpp;
         u32                     fps;
         u32                     rotate;
+        char *gamma;
+        int gamma_num;
+        int gamma_len;
 };
 
 #define SUNIV_FIFO_DEPTH 128
@@ -79,10 +82,21 @@ struct st7789v_par {
         struct fb_info          *fbinfo;
         struct fb_ops           *fbops;
 
-        u32             palette_buffer[256];
         u32             pseudo_palette[16];
+
+        bool            startbyte;
+        u32             dirty_lines_start;
+        u32             dirty_lines_end;
+
+        struct {
+                struct mutex lock;
+                u32 *curves;
+                int num_values;
+                int num_curves;
+        } gamma;
+
 };
-u8 txbuf[SUNIV_FIFO_DEPTH];
+// u8 txbuf[SUNIV_FIFO_DEPTH];
 // static int g_epd_3in27_flag = 0;
 
 static int fbtft_write_spi(struct st7789v_par *par, void *buf, size_t len)
@@ -124,25 +138,25 @@ static __inline int st7789v_send(struct st7789v_par *par, u8 byte, int dc)
 #define NUMARGS(...)  (sizeof((int[]){__VA_ARGS__}) / sizeof(int))
 static int st7789v_write_reg(struct st7789v_par *par, int len, ...)
 {
+        u8 *buf = (u8 *)par->buf;
         va_list args;
-        u32 arg;
         int i;
 
         va_start(args, len);
 
-        arg = va_arg(args, unsigned int);
-        fbtft_write_buf_dc(par, &arg, 1, 0);
+        *buf = (u8)va_arg(args, unsigned int);
+        fbtft_write_buf_dc(par, buf, sizeof(u8), 0);
         len--;
 
+        /* if there no params */
         if (len == 0)
                 return 0;
 
-        for (i = 0; i < len; i++) {
-                par->buf[i] = va_arg(args, unsigned int);
-        }
-        va_end(args);
+        for (i = 0; i < len; i++)
+                *buf++ = (u8)va_arg(args, unsigned int);
 
         fbtft_write_buf_dc(par, par->buf, len, 1);
+        va_end(args);
 
         return 0;
 }
@@ -260,6 +274,52 @@ static int __maybe_unused st7789v_clear(struct st7789v_par *par)
         // for (i = 0; i < (240 * 280 * 2) / 128; i++) {
         //         fbtft_write_buf_dc(par, par->txbuf, 128, 1);
         // }
+        return 0;
+}
+
+#define PVGAMCTRL 0xE0
+#define HSD20_IPS_GAMMA \
+        "D0 05 0A 09 08 05 2E 44 45 0F 17 16 2B 33\n" \
+        "D0 05 0A 09 08 05 2E 43 45 0F 16 16 2B 33"
+u32 default_curves[] = {
+        0xD0, 0x05, 0x0A, 0x09, 0x08, 0x05, 0x2E, 0x44, 0x45, 0x0F, 0x17, 0x16, 0x2B, 0x33,
+        0xD0, 0x05, 0x0A, 0x09, 0x08, 0x05, 0x2E, 0x43, 0x45, 0x0F, 0x16, 0x16, 0x2B, 0x33,
+};
+static int st7789v_set_gamma(struct st7789v_par *par, u32 *curves)
+{
+        int i, j, c;
+        /*
+         * Bitmasks for gamma curve command parameters.
+         * The masks are the same for both positive and negative voltage
+         * gamma curves.
+         */
+        static const u8 gamma_par_mask[] = {
+                0xFF, /* V63[3:0], V0[3:0]*/
+                0x3F, /* V1[5:0] */
+                0x3F, /* V2[5:0] */
+                0x1F, /* V4[4:0] */
+                0x1F, /* V6[4:0] */
+                0x3F, /* J0[1:0], V13[3:0] */
+                0x7F, /* V20[6:0] */
+                0x77, /* V36[2:0], V27[2:0] */
+                0x7F, /* V43[6:0] */
+                0x3F, /* J1[1:0], V50[3:0] */
+                0x1F, /* V57[4:0] */
+                0x1F, /* V59[4:0] */
+                0x3F, /* V61[5:0] */
+                0x3F, /* V62[5:0] */
+        };
+        for (i = 0; i < 2; i++) {
+                c = i * 14;
+                for (j = 0; j < 14; j++)
+                        curves[c + j] &= gamma_par_mask[j];
+                write_reg(par, PVGAMCTRL + i,
+                          curves[c + 0],  curves[c + 1],  curves[c + 2],
+                          curves[c + 3],  curves[c + 4],  curves[c + 5],
+                          curves[c + 6],  curves[c + 7],  curves[c + 8],
+                          curves[c + 9],  curves[c + 10], curves[c + 11],
+                          curves[c + 12], curves[c + 13]);
+        }
         return 0;
 }
 
@@ -395,6 +455,7 @@ static int st7789v_hw_init(struct st7789v_par *par)
         printk("%s, Display Panel initializing ...\n", __func__);
         st7789v_init_display(par);
         st7789v_set_var(par);
+        st7789v_set_gamma(par, default_curves);
         st7789v_clear(par);
 
         return 0;
@@ -404,11 +465,12 @@ static int st7789v_hw_init(struct st7789v_par *par)
 static int write_vmem(struct st7789v_par *par, size_t offset, size_t len)
 {
         u16 *vmem16;
-        __maybe_unused __be16 *txbuf16 = par->txbuf.buf;
+        __be16 *txbuf16 = par->txbuf.buf;
         size_t remain;
-        __maybe_unused size_t to_copy;
-        __maybe_unused size_t tx_array_size;
-        __maybe_unused int i;
+        size_t to_copy;
+        size_t tx_array_size;
+        int i;
+        size_t startbyte_size = 0;
 
         dev_dbg(par->dev, "%s, offset = %d, len = %d\n", __func__, offset, len);
 
@@ -418,22 +480,32 @@ static int write_vmem(struct st7789v_par *par, size_t offset, size_t len)
         gpiod_set_value(par->gpio.dc, 1);
 
         /* non-buffered spi write */
-        // if (!par->txbuf.buf)
-        return fbtft_write_spi(par, vmem16, len);
+        if (!par->txbuf.buf)
+                return fbtft_write_spi(par, vmem16, len);
 
-        // tx_array_size = par->txbuf.len / 2;
+        tx_array_size = par->txbuf.len / 2;
 
-        // while (remain) {
-        //         to_copy = min(tx_array_size, remain);
-        //         for (i = 0; i < to_copy; i++)
-        //                 txbuf16[i] = cpu_to_be16(vmem16[i]);
-        //         vmem16 = vmem16 + to_copy;
+        if (par->startbyte) {
+                txbuf16 = par->txbuf.buf + 1;
+                tx_array_size -= 2;
+                *(u8 *)(par->txbuf.buf) = par->startbyte | 0x2;
+                startbyte_size = 1;
+        }
 
-        //         /* send batch to device */
-        //         fbtft_write_spi(par, txbuf16, to_copy);
+        while (remain) {
+                to_copy = min(tx_array_size, remain);
+                dev_dbg(par->fbinfo->device, "to_copy=%zu, remain=%zu\n",
+                        to_copy, remain - to_copy);
 
-        //         remain -= to_copy;
-        // }
+                for (i = 0; i < to_copy; i++)
+                        txbuf16[i] = cpu_to_be16(vmem16[i]);
+
+                vmem16 = vmem16 + to_copy;
+                /* send batch to device */
+                fbtft_write_spi(par, par->txbuf.buf, startbyte_size + to_copy * 2);
+
+                remain -= to_copy;
+        }
         return 0;
 }
 
@@ -442,8 +514,7 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
 {
         size_t offset, len;
 
-        // printk("%s\n", __func__);
-        dev_dbg(par->dev, "%s\n", __func__);
+        dev_dbg(par->dev, "%s, start_line : %d, end_line : %d\n", __func__, start_line, end_line);
 
         par->tftops->idle(par, false);
         /* write vmem to display then call refresh routine */
@@ -451,10 +522,24 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
          * when this was called, driver should wait for busy pin comes low
          * until next frame refreshed
          */
+        if (start_line > end_line) {
+                dev_dbg(par->dev, "start line never should bigger than end line !!!!!\n");
+                start_line = 0;
+                end_line = par->fbinfo->var.yres - 1;
+        }
+
+        if (start_line > par->fbinfo->var.yres - 1 ||
+            end_line > par->fbinfo->var.yres - 1) {
+                dev_dbg(par->dev, "invaild start line or end line !!!!!\n");
+                start_line = 0;
+                end_line = par->fbinfo->var.yres - 1;
+        }
+
         start_line = 0;
         end_line = par->fbinfo->var.yres - 1;
 
-        st7789v_set_addr_win(par, 0, start_line, par->fbinfo->var.xres - 1, end_line);
+        /* for each column, refresh dirty rows */
+        par->tftops->set_addr_win(par, 0, start_line, par->fbinfo->var.xres - 1, end_line);
 
         offset = start_line * par->fbinfo->fix.line_length;
         len = (end_line - start_line + 1) * par->fbinfo->fix.line_length;
@@ -466,10 +551,10 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
 
 static void st7789v_mkdirty(struct fb_info *info, int y, int height)
 {
-        __maybe_unused struct st7789v_par *par = info->par;
+        struct st7789v_par *par = info->par;
         struct fb_deferred_io *fbdefio = info->fbdefio;
 
-        dev_dbg(info->dev, "%s\n", __func__);
+        dev_dbg(info->dev, "%s, y : %d, height : %d\n", __func__, y, height);
 
         if (y == -1) {
                 y = 0;
@@ -477,8 +562,12 @@ static void st7789v_mkdirty(struct fb_info *info, int y, int height)
         }
 
         /* mark dirty lines here, but update all for now */
-        // spin_lock(&par->dirty_lock);
-        // spin_unlock(&par->dirty_lock);
+        spin_lock(&par->dirty_lock);
+        if (y < par->dirty_lines_start)
+                par->dirty_lines_start = y;
+        if (y + height - 1 > par->dirty_lines_end)
+                par->dirty_lines_end = y + height - 1;
+        spin_unlock(&par->dirty_lock);
 
         schedule_delayed_work(&info->deferred_work, fbdefio->delay);
 }
@@ -492,6 +581,15 @@ static void st7789v_deferred_io(struct fb_info *info, struct list_head *pagelist
         struct page *page;
         int count = 0;
 
+        spin_lock(&par->dirty_lock);
+        dirty_lines_start = par->dirty_lines_start;
+        dirty_lines_end = par->dirty_lines_end;
+
+        /* clean dirty markers */
+        par->dirty_lines_start = par->fbinfo->var.yres - 1;
+        par->dirty_lines_end = 0;
+        spin_unlock(&par->dirty_lock);
+
         list_for_each_entry(page, pagelist, lru) {
                 count++;
                 index = page->index << PAGE_SHIFT;
@@ -500,6 +598,7 @@ static void st7789v_deferred_io(struct fb_info *info, struct list_head *pagelist
                 dev_dbg(info->device,
                         "page->index=%lu y_low=%d y_high=%d\n",
                         page->index, y_low, y_high);
+
                 if (y_high > info->var.yres - 1)
                         y_high = info->var.yres - 1;
                 if (y_low < dirty_lines_start)
@@ -508,6 +607,9 @@ static void st7789v_deferred_io(struct fb_info *info, struct list_head *pagelist
                         dirty_lines_end = y_high;
         }
 
+        dev_dbg(info->device,
+                "%s, dirty_line  start : %d, end : %d\n",
+                __func__, dirty_lines_start, dirty_lines_end);
         update_display(par, dirty_lines_start, dirty_lines_end);
 }
 
@@ -622,6 +724,10 @@ static const struct st7789v_display display = {
         .bpp = 16,
         .fps = 60,
         .rotate = 90,
+
+        .gamma_num = 2,
+        .gamma_len = 14,
+        .gamma = HSD20_IPS_GAMMA,
 };
 
 static int st7789v_probe(struct spi_device *spi)
@@ -678,18 +784,14 @@ static int st7789v_probe(struct spi_device *spi)
         info->fbops = fbops;
         info->fbdefio = fbdefio;
 
-        fbops->owner = dev->driver->owner;
+        fbops->owner        = dev->driver->owner;
         fbops->fb_read      = fb_sys_read;
         fbops->fb_write     = st7789v_fb_write;
-        fbops->fb_blank     = st7789v_fb_blank;
         fbops->fb_fillrect  = st7789v_fb_fillrect;
         fbops->fb_copyarea  = st7789v_fb_copyarea;
         fbops->fb_imageblit = st7789v_fb_imageblit;
         fbops->fb_setcolreg = st7789v_fb_setcolreg;
-
-        fbdefio->delay = HZ / display.fps;
-        fbdefio->deferred_io = st7789v_deferred_io;
-        fb_deferred_io_init(info);
+        fbops->fb_blank     = st7789v_fb_blank;
 
         snprintf(info->fix.id, sizeof(info->fix.id), "%s", dev->driver->name);
         info->fix.type            =       FB_TYPE_PACKED_PIXELS;
@@ -718,9 +820,12 @@ static int st7789v_probe(struct spi_device *spi)
         info->var.transp.offset   =       0;
         info->var.transp.length   =       0;
 
-        info->var.grayscale     = 0;
-
+        // info->var.grayscale     = 0;
         info->flags = FBINFO_FLAG_DEFAULT | FBINFO_VIRTFB;
+
+        fbdefio->delay = HZ / display.fps;
+        fbdefio->deferred_io = st7789v_deferred_io;
+        fb_deferred_io_init(info);
 
         /* st7789v self setup */
         par = info->par;
@@ -730,21 +835,22 @@ static int st7789v_probe(struct spi_device *spi)
         par->spi = spi;
         par->dev = dev;
 
-        par->buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
+        par->buf = devm_kzalloc(dev, 128, GFP_KERNEL);
         if (!par->buf) {
                 dev_err(dev, "failed to alloc buf memory!\n");
                 return -ENOMEM;
         }
 
-        par->txbuf.buf = kmalloc(SUNIV_FIFO_DEPTH, GFP_KERNEL);
+        par->txbuf.buf = devm_kzalloc(dev, vmem_size + 2, GFP_KERNEL);
         if (!par->txbuf.buf) {
                 dev_err(dev, "failed to alloc txbuf!\n");
                 return -ENOMEM;
         }
-        par->txbuf.len = SUNIV_FIFO_DEPTH;
+        par->txbuf.len = vmem_size + 2;
 
         par->tftops = &default_st7789v_ops;
         par->display = &display;
+
         dev_set_drvdata(dev, par);
         spi_set_drvdata(spi, par);
 
@@ -753,12 +859,19 @@ static int st7789v_probe(struct spi_device *spi)
         st7789v_of_config(par);
         st7789v_hw_init(par);
 
+        update_display(par, 0, par->fbinfo->var.yres - 1);
+
         /* framebuffer register */
         rc = register_framebuffer(info);
         if (rc < 0) {
                 dev_err(dev, "framebuffer register failed with %d!\n", rc);
                 goto alloc_fail;
         }
+
+        printk("%zu KB buffer memory\n", par->txbuf.len >> 10);
+        printk(" spi%d.%d at %d MHz\n", spi->master->bus_num, spi->chip_select,
+               spi->max_speed_hz / 1000000);
+        printk("%d KB video memory\n", info->fix.smem_len >> 10);
 
         return 0;
 
@@ -773,8 +886,8 @@ static int st7789v_remove(struct spi_device *spi)
         struct st7789v_par *par = spi_get_drvdata(spi);
 
         printk("%s\n", __func__);
-        kfree(par->buf);
-        kfree(par->txbuf.buf);
+        fb_deferred_io_cleanup(par->fbinfo);
+
         unregister_framebuffer(par->fbinfo);
         framebuffer_release(par->fbinfo);
         return 0;
