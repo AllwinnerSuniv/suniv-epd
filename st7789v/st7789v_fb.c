@@ -44,6 +44,11 @@ struct st7789v_display {
         u32                     bpp;
         u32                     fps;
         u32                     rotate;
+        u32                     xs_off;
+        u32                     xe_off;
+        u32                     ys_off;
+        u32                     ye_off;
+
         char *gamma;
         int gamma_num;
         int gamma_len;
@@ -84,16 +89,8 @@ struct st7789v_par {
 
         u32             pseudo_palette[16];
 
-        bool            startbyte;
         u32             dirty_lines_start;
         u32             dirty_lines_end;
-
-        struct {
-                struct mutex lock;
-                u32 *curves;
-                int num_values;
-                int num_curves;
-        } gamma;
 
 };
 // u8 txbuf[SUNIV_FIFO_DEPTH];
@@ -184,7 +181,7 @@ static int st7789v_init_display(struct st7789v_par *par)
         //************* Start Initial Sequence **********//
         write_reg(par, 0x36, 0x00);
 
-        write_reg(par, 0x3A, 0x05);
+        write_reg(par, 0x3A, 0x55);
 
         write_reg(par, 0xB2, 0x0C, 0x0C, 0x00, 0x33, 0x33);
 
@@ -227,8 +224,8 @@ static int st7789v_set_addr_win(struct st7789v_par *par, int xs, int ys, int xe,
                                 int ye)
 {
         dev_dbg(par->dev, "xs = %d, xe = %d, ys = %d, ye = %d\n", xs, xe, ys, ye);
-        xs = xs + 20;
-        xe = xe + 20;
+        xs = xs + 80;
+        xe = xe + 80;
         write_reg(par, MIPI_DCS_SET_COLUMN_ADDRESS,
                   ((xs >> BITS_PER_BYTE) & 0xff), (xs & 0xff),
                   ((xe >> BITS_PER_BYTE) & 0xff), (xe & 0xff));
@@ -285,7 +282,7 @@ u32 default_curves[] = {
         0xD0, 0x05, 0x0A, 0x09, 0x08, 0x05, 0x2E, 0x44, 0x45, 0x0F, 0x17, 0x16, 0x2B, 0x33,
         0xD0, 0x05, 0x0A, 0x09, 0x08, 0x05, 0x2E, 0x43, 0x45, 0x0F, 0x16, 0x16, 0x2B, 0x33,
 };
-static int st7789v_set_gamma(struct st7789v_par *par, u32 *curves)
+static int __maybe_unused st7789v_set_gamma(struct st7789v_par *par, u32 *curves)
 {
         int i, j, c;
         /*
@@ -455,7 +452,7 @@ static int st7789v_hw_init(struct st7789v_par *par)
         printk("%s, Display Panel initializing ...\n", __func__);
         st7789v_init_display(par);
         st7789v_set_var(par);
-        st7789v_set_gamma(par, default_curves);
+        // st7789v_set_gamma(par, default_curves);
         st7789v_clear(par);
 
         return 0;
@@ -470,7 +467,6 @@ static int write_vmem(struct st7789v_par *par, size_t offset, size_t len)
         size_t to_copy;
         size_t tx_array_size;
         int i;
-        size_t startbyte_size = 0;
 
         dev_dbg(par->dev, "%s, offset = %d, len = %d\n", __func__, offset, len);
 
@@ -485,13 +481,6 @@ static int write_vmem(struct st7789v_par *par, size_t offset, size_t len)
 
         tx_array_size = par->txbuf.len / 2;
 
-        if (par->startbyte) {
-                txbuf16 = par->txbuf.buf + 1;
-                tx_array_size -= 2;
-                *(u8 *)(par->txbuf.buf) = par->startbyte | 0x2;
-                startbyte_size = 1;
-        }
-
         while (remain) {
                 to_copy = min(tx_array_size, remain);
                 dev_dbg(par->fbinfo->device, "to_copy=%zu, remain=%zu\n",
@@ -502,7 +491,7 @@ static int write_vmem(struct st7789v_par *par, size_t offset, size_t len)
 
                 vmem16 = vmem16 + to_copy;
                 /* send batch to device */
-                fbtft_write_spi(par, par->txbuf.buf, startbyte_size + to_copy * 2);
+                fbtft_write_spi(par, par->txbuf.buf,  to_copy * 2);
 
                 remain -= to_copy;
         }
@@ -516,7 +505,7 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
 
         dev_dbg(par->dev, "%s, start_line : %d, end_line : %d\n", __func__, start_line, end_line);
 
-        par->tftops->idle(par, false);
+        // par->tftops->idle(par, false);
         /* write vmem to display then call refresh routine */
         /*
          * when this was called, driver should wait for busy pin comes low
@@ -535,8 +524,8 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
                 end_line = par->fbinfo->var.yres - 1;
         }
 
-        start_line = 0;
-        end_line = par->fbinfo->var.yres - 1;
+        // start_line = 0;
+        // end_line = par->fbinfo->var.yres - 1;
 
         /* for each column, refresh dirty rows */
         par->tftops->set_addr_win(par, 0, start_line, par->fbinfo->var.xres - 1, end_line);
@@ -546,7 +535,7 @@ static void update_display(struct st7789v_par *par, unsigned int start_line,
 
         write_vmem(par, offset, len);
 
-        par->tftops->idle(par, true);
+        // par->tftops->idle(par, true);
 }
 
 static void st7789v_mkdirty(struct fb_info *info, int y, int height)
@@ -691,9 +680,6 @@ static int st7789v_fb_setcolreg(unsigned int regno, unsigned int red,
                         ret = 0;
                 }
                 break;
-        case FB_VISUAL_MONO01:
-                dev_dbg(info->dev, "FB_VISUAL_MONO01\n");
-                break;
         }
 
         return ret;
@@ -720,7 +706,7 @@ static int st7789v_fb_blank(int blank, struct fb_info *info)
 
 static const struct st7789v_display display = {
         .xres = 240,
-        .yres = 280,
+        .yres = 240,
         .bpp = 16,
         .fps = 60,
         .rotate = 90,
@@ -841,12 +827,12 @@ static int st7789v_probe(struct spi_device *spi)
                 return -ENOMEM;
         }
 
-        par->txbuf.buf = devm_kzalloc(dev, vmem_size + 2, GFP_KERNEL);
+        par->txbuf.buf = devm_kzalloc(dev, vmem_size, GFP_KERNEL);
         if (!par->txbuf.buf) {
                 dev_err(dev, "failed to alloc txbuf!\n");
                 return -ENOMEM;
         }
-        par->txbuf.len = vmem_size + 2;
+        par->txbuf.len = vmem_size;
 
         par->tftops = &default_st7789v_ops;
         par->display = &display;
