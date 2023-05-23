@@ -3,7 +3,7 @@
 KERN_DIR ?= /lib/modules/$(shell uname -r)/build
 
 # users kernel dir
-KERN_DIR := /home/developer/sources/HamsterBear/software/bsp/linux-5.17.2
+# KERN_DIR := /home/developer/sources/HamsterBear/software/bsp/linux-5.17.2
 
 MODULE_NAME = st7789v_fb
 

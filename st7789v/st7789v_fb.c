@@ -8,7 +8,6 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/compat.h>
-#include <linux/stdarg.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
 #include <linux/of_device.h>
@@ -81,8 +80,6 @@ struct st7789v_par {
 
         const struct st7789v_operations        *tftops;
         const struct st7789v_display           *display;
-
-        struct tasklet_struct task;
 
         struct fb_info          *fbinfo;
         struct fb_ops           *fbops;
@@ -468,7 +465,7 @@ static int write_vmem(struct st7789v_par *par, size_t offset, size_t len)
         size_t tx_array_size;
         int i;
 
-        dev_dbg(par->dev, "%s, offset = %d, len = %d\n", __func__, offset, len);
+        dev_dbg(par->dev, "%s, offset = %ld, len = %ld\n", __func__, offset, len);
 
         remain = len / 2;
         vmem16 = (u16 *)(par->fbinfo->screen_buffer + offset);
@@ -827,12 +824,12 @@ static int st7789v_probe(struct spi_device *spi)
                 return -ENOMEM;
         }
 
-        par->txbuf.buf = devm_kzalloc(dev, vmem_size, GFP_KERNEL);
+        par->txbuf.buf = devm_kzalloc(dev, PAGE_SIZE, GFP_KERNEL);
         if (!par->txbuf.buf) {
                 dev_err(dev, "failed to alloc txbuf!\n");
                 return -ENOMEM;
         }
-        par->txbuf.len = vmem_size;
+        par->txbuf.len = PAGE_SIZE;
 
         par->tftops = &default_st7789v_ops;
         par->display = &display;
