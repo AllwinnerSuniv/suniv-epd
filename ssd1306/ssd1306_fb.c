@@ -220,8 +220,27 @@ static int ssd1306_set_pos(struct ssd1306_par *par, int page, int col)
         return 0;
 }
 
+static int ssd1306_set_addr_win(struct ssd1306_par *par, int xs, int ys, int xe, int ye)
+{
+        write_reg(par, 0xb0);
+        
+        write_reg(par, 0x00);
+        write_reg(par, 0x10);
+}
+
 static int ssd1306_blank(struct ssd1306_par *par, bool on)
 {
+        if (on)
+                write_reg(par, 0xae);
+        else
+                write_reg(par, 0xaf);
+        return 0;
+}
+
+static int ssd1306_set_gamma(struct ssd1306_par *par, u32 *curves)
+{
+        curves[0] &= 0xff;
+
         return 0;
 }
 
@@ -241,14 +260,14 @@ static int __maybe_unused ssd1306_clear(struct ssd1306_par *par)
                         write_data(par, 0xff);
                 }
         }
-                        
-                
-        // for (page = 0; page < 8; page++)
-        // for (col = 0; col < 128; col++) {
-        //         ssd1306_set_pos(par, page, col);
-        //         fbtft_write_spi(par, &clear, 1);
-        // }
-        
+
+        for (page = 0; page < 8; page++) {
+                ssd1306_set_pos(par, page, 0);
+                for (col = 0; col < 128; col++) {
+                        write_data(par, 0x0);
+                }
+        }                        
+
         return 0;
 }
 
