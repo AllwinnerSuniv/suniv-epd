@@ -1,4 +1,3 @@
-<body >
 <h1 align="center">Suniv Epd</h1>
 
 <div style="
@@ -39,4 +38,3 @@ This project is based on fbtft
 </br>
 
 </div>
-</body>
