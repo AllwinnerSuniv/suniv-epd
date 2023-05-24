@@ -384,7 +384,7 @@ static int __maybe_unused ssd1306_clear(struct ssd1306_par *par)
     return 0;
 }
 
-
+/* TODO: do the real grayscale dram write */
 static int ssd1306_write_vmem(struct ssd1306_par *par, size_t offset, size_t len)
 {
     u16 *vmem16 = (u16 *)par->fbinfo->screen_buffer;
@@ -526,7 +526,6 @@ static void update_display(struct ssd1306_par *par, unsigned int start_line,
     offset = start_line * par->fbinfo->fix.line_length;
     len = (end_line - start_line + 1) * par->fbinfo->fix.line_length;
 
-    // write_vmem_common(par, offset, len);
     par->tftops->write_vmem(par, offset, len);
 
     // par->tftops->idle(par, true);
