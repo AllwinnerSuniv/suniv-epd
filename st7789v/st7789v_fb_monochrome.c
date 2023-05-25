@@ -458,7 +458,8 @@ static int st7789v_hw_init(struct st7789v_par *par)
 #define RED(a)      ((((a) & 0xf800) >> 11) << 3)
 #define GREEN(a)    ((((a) & 0x07e0) >> 5) << 2)
 #define BLUE(a)     (((a) & 0x001f) << 3)
-#define to_rgb565(r,g,b) (((((r) >> 3) & 0x1f) << 11) | ((((g) >> 2) & 0x3f) << 5) | (((b) >> 3) & 0x1f))
+
+#define to_rgb565(r,g,b) ((r) << 11 | (g) << 5 | (b))
 
 static inline u16 rgb565_to_grayscale(u16 rgb565)
 {
@@ -469,11 +470,11 @@ static inline u16 rgb565_to_grayscale(u16 rgb565)
     g = GREEN(rgb565);
     b = BLUE(rgb565);
 
-    gray = ((r + g + b) / 3) & 0x1c;
+    gray = ((r + g + b) / 3);
 
-    // r = (gray >> 3) & 0x1f;
-    // g = (gray >> 3) & 0x3f;
-    // b = (gray >> 3) & 0x1f;
+    /* map to rgb565 format */
+    r = b = gray * 31 / 255;  // 0 ~ 31
+    g = gray * 63 / 255;
 
     return cpu_to_be16(to_rgb565(r, g, b));
 }
@@ -483,20 +484,19 @@ static inline u16 rgb565_to_grayscale_byweight(u16 rgb565)
     int r,g,b;
     u16 gray;
 
+    /* get each channel and expand them to 8 bit */
     r = RED(rgb565);
     g = GREEN(rgb565);
     b = BLUE(rgb565);
 
-    gray = ((r * 77 + g * 151 + b * 28) >> 8); // 0~255
+    /* convert rgb888 to grayscale */
+    gray = ((r * 77 + g * 151 + b * 28) >> 8); // 0 ~ 255
 
-    r = b = gray * 31 / 255;
+    /* map to rgb565 format */
+    r = b = gray * 31 / 255;  // 0 ~ 31
     g = gray * 63 / 255;
 
-    // gray = (gray >> 3) & 0x1f;
-
-    // gray += 10;  // 0 ~ 31
-
-    return cpu_to_be16(r << 11 | g << 5 | b);
+    return cpu_to_be16(to_rgb565(r, g, b));
 }
 
 /* TODO: device seems received wrong color format, check data transfer routine */
