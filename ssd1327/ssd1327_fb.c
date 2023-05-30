@@ -495,18 +495,17 @@ static int write_vmem(struct ssd1327_par *par, size_t offset, size_t len)
                 /* for each 2 pixel */
                 for (i = 0, j = 0; i < to_copy; i += 2, j++) {
                         /* monochrome, don't use this for desktop env */
-                        if (par->fbinfo->fix.visual == FB_VISUAL_MONO01) {
+                        if (par->fbinfo->fix.visual == FB_VISUAL_MONO10) {
                                 // txbuf16[i] = vmem16[i] ? 0 : 0xffff;
-                                p0 = ((vmem16[i] ? 0 : 0xff));
-                                p1 = ((vmem16[i + 1] ? 0 : 0xff));
+                                p0 = ((vmem16[i] ? 0xff : 0) & 0x0f);
+                                p1 = ((vmem16[i + 1] ? 0xff : 0) & 0x0f);
                                 txbuf8[j] = p0 << 4 | p1;
-                                // printk("txbuf[%d] : %d, p0 : %d, p1 : %d", j, txbuf8[j], p0, p1);
                         }
                         
                         /* 16bit grayscale */
-                        // if (par->fbinfo->var.grayscale) {
+                        if (par->fbinfo->var.grayscale) {
                         
-                        // }
+                        }
                 }
                 
                 vmem16 = vmem16 + to_copy;
@@ -543,10 +542,6 @@ static void update_display(struct ssd1327_par *par, unsigned int start_line,
                 start_line = 0;
                 end_line = par->fbinfo->var.yres - 1;
         }
-        
-        /* for testing */
-        start_line = 0;
-        end_line = par->fbinfo->var.yres - 1;
         
         /* for each column, refresh dirty rows */
         par->tftops->set_addr_win(par, 0, start_line, par->fbinfo->var.xres - 1, end_line);
@@ -821,7 +816,7 @@ static int ssd1327_probe(struct spi_device *spi)
         snprintf(info->fix.id, sizeof(info->fix.id), "%s", dev->driver->name);
         info->fix.type            =       FB_TYPE_PACKED_PIXELS;
         // info->fix.visual          =       FB_VISUAL_TRUECOLOR;
-        info->fix.visual          =       FB_VISUAL_MONO01;
+        info->fix.visual          =       FB_VISUAL_MONO10;
         info->fix.xpanstep        =       0;
         info->fix.ypanstep        =       0;
         info->fix.ywrapstep       =       0;
