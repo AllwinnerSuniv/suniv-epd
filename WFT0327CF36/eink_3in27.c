@@ -8,7 +8,6 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/compat.h>
-#include <linux/stdarg.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
 #include <linux/of_device.h>
@@ -200,7 +199,7 @@ static int eink_3in27_turn_on_display(struct eink_3in27_par *par, u8 mode)
         return 0;
 }
 
-static int eink_3in27_sleep(struct eink_3in27_par *par)
+static int __maybe_unused eink_3in27_sleep(struct eink_3in27_par *par)
 {
         write_cmd(par, 0x50);
         write_data(par, 0x37);
@@ -234,7 +233,7 @@ static const struct eink_3in27_operations default_eink_3in27_ops = {
         .sleep = NULL,
 };
 
-static const int eink_3in27_show_img(struct eink_3in27_par *par, const u8 *img)
+static const int __maybe_unused eink_3in27_show_img(struct eink_3in27_par *par, const u8 *img)
 {
         int i;
 
@@ -303,7 +302,7 @@ static int eink_3in27_request_gpios(struct eink_3in27_par *par)
 }
 
 /* returns 0 if the property is not present */
-static u32 fbtft_property_value(struct device *dev, const char *propname)
+static u32 __maybe_unused fbtft_property_value(struct device *dev, const char *propname)
 {
         int ret;
         u32 val = 0;
@@ -347,12 +346,12 @@ static const struct eink_3in27_display display = {
         .bpp = 1,
 };
 
-static irqreturn_t panel_busy_handle(int irq, void *data)
+static irqreturn_t __maybe_unused panel_busy_handle(int irq, void *data)
 {
         return IRQ_HANDLED;
 }
 
-static int eink_3in27_setup_irq(struct eink_3in27_par *par)
+static int __maybe_unused eink_3in27_setup_irq(struct eink_3in27_par *par)
 {
         struct device *dev = par->dev;
         struct gpio_desc *busy;
@@ -367,7 +366,7 @@ static int eink_3in27_setup_irq(struct eink_3in27_par *par)
         return 0;
 }
 
-static void update_display(struct eink_3in27_par *par)
+static void __maybe_unused update_display(struct eink_3in27_par *par)
 {
         int i;
         u8 *buf = par->fbinfo->screen_buffer;

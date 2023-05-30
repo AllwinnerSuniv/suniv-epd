@@ -3,9 +3,10 @@
 KERN_DIR ?= /lib/modules/$(shell uname -r)/build
 
 # users kernel dir
-KERN_DIR := /home/developer/sources/HamsterBear/software/bsp/linux-5.17.2
+# KERN_DIR := /home/developer/sources/HamsterBear/software/bsp/linux-5.17.2
+KERN_DIR := /home/developer/sources/orangepi-build/kernel/orange-pi-5.10-rk3588
 
-MODULE_NAME = eink_3in27
+MODULE_NAME = WFT0327CF36
 
 all:
 	make -C $(KERN_DIR) M=`pwd` modules
