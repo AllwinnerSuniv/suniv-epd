@@ -26,16 +26,55 @@
 
 #include "imagedata.h"
 
+/*
+ * SSD1327 Command Table
+ */
+#define SSD1327_CMD_SET_COL_ADDR        0x15
+#define SSD1327_CMD_SET_ROW_ADDR        0x75
+#define SSD1327_CMD_SET_CONTRAST        0x81
+
+/* 0x84 ~ 0x86 are no operation commands */
+
+#define SSD1327_CMD_SET_REMAP                   0xA0
+#define SSD1327_CMD_SET_DISPLAY_START_LINE      0xA1
+#define SSD1327_CMD_SET_DISPLAY_OFFSET          0xA2
+
+/* SSD1327 Display mode setting */
+#define SSD1327_CMD_SET_DISPLAY_MODE_NORMAL          0xA4
+#define SSD1327_CMD_SET_DISPLAY_MODE_ON              0xA5    /* All pixel at grayscale level GS15 */
+#define SSD1327_CMD_SET_DISPLAY_MODE_OFF             0xA6    /* All pixel at grayscale level GS0 */
+#define SSD1327_CMD_SET_DISPLAY_MODE_INVERSE         0xA7
+
+#define SSD1327_CMD_SET_MULTIPLEX_RATIO         0xA8
+#define SSD1327_CMD_FUNCTION_SELETION_A         0xAB
+
+#define SSD1327_CMD_SET_DISPLAY_ON               0xAE
+#define SSD1327_CMD_SET_DISPLAY_OFF              0xAF
+
+#define SSD1327_CMD_SET_PHASE_LENGTH                0xB1
+#define SSD1327_CMD_NOP                             0xB2
+#define SSD1327_CMD_SET_FCLK_OSC_FREQ               0xB3
+#define SSD1327_CMD_SET_GPIO                        0xB5
+#define SSD1327_CMD_SET_SEC_PRE_CHARGE_PERIOD       0xB6
+#define SSD1327_CMD_SET_GRAY_SCALE_TABLE            0xB8
+#define SSd1327_CMD_SEL_DEF_LINEAR_GC_TABLE         0xB9
+
+/* SSD1327 Default settings */
+#define SSD1327_DEF_GAMMA_LEVEL         32
+
 #define DRV_NAME "ssd1327_drv"
 
 struct ssd1327_par;
 
 struct ssd1327_operations {
+        int (*init_display)(struct ssd1327_par *par);
         int (*reset)(struct ssd1327_par *par);
         int (*clear)(struct ssd1327_par *par);
         int (*idle)(struct ssd1327_par *par, bool on);
         int (*blank)(struct ssd1327_par *par, bool on);
         int (*sleep)(struct ssd1327_par *par, bool on);
+        int (*set_var)(struct ssd1327_par *par);
+        int (*set_gamma)(struct ssd1327_par *par, u8 gamma);
         int (*set_addr_win)(struct ssd1327_par *par, int xs, int ys, int xe, int ye);
 };
 
@@ -50,9 +89,7 @@ struct ssd1327_display {
         u32                     ys_off;
         u32                     ye_off;
 
-        char *gamma;
-        int gamma_num;
-        int gamma_len;
+        u8                      gamma;
 };
 
 #define SUNIV_FIFO_DEPTH 128
@@ -90,7 +127,7 @@ struct ssd1327_par {
 
         u32             dirty_lines_start;
         u32             dirty_lines_end;
-
+        u8              contrast;
 };
 // u8 txbuf[SUNIV_FIFO_DEPTH];
 // static int g_epd_3in27_flag = 0;
@@ -119,6 +156,81 @@ static int fbtft_write_buf_dc(struct ssd1327_par *par, void *buf, size_t len, in
                 dev_err(par->dev, "write() failed and returned %d\n", rc);
 
         return rc;
+}
+
+
+static int fbtft_request_one_gpio(struct ssd1327_par *par,
+                                  const char *name, int index,
+                                  struct gpio_desc **gpiop)
+{
+        struct device *dev = par->dev;
+        struct device_node *np = dev->of_node;
+        int gpio, flags, rc = 0;
+        enum of_gpio_flags of_flags;
+
+        if (of_find_property(np, name, NULL)) {
+                gpio = of_get_named_gpio_flags(np, name, index, &of_flags);
+                if (gpio == -ENOENT)
+                        return 0;
+                if (gpio == -EPROBE_DEFER)
+                        return gpio;
+                if (gpio < 0) {
+                        dev_err(dev,
+                                "failed to get '%s' from DT\n", name);
+                        return gpio;
+                }
+
+                flags = (of_flags & OF_GPIO_ACTIVE_LOW) ? \
+                        GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
+                rc = devm_gpio_request_one(dev, gpio, flags,
+                                           dev->driver->name);
+                if (rc) {
+                        dev_err(dev,
+                                "gpio_request_one('%s'=%d) failed with %d\n",
+                                name, gpio, rc);
+                        return rc;
+                }
+                if (gpiop)
+                        *gpiop = gpio_to_desc(gpio);
+                pr_debug("%s : '%s' = GPIO%d\n",
+                         __func__, name, gpio);
+        }
+
+        return rc;
+}
+
+static int fbtft_request_gpios(struct ssd1327_par *par)
+{
+        int rc;
+        pr_debug("%s, configure from dt\n", __func__);
+
+        rc = fbtft_request_one_gpio(par, "reset-gpios", 0, &par->gpio.reset);
+        if (rc)
+                return rc;
+        rc = fbtft_request_one_gpio(par, "dc-gpios", 0, &par->gpio.dc);
+        if (rc)
+                return rc;
+        rc = fbtft_request_one_gpio(par, "blk-gpios", 0, &par->gpio.blk);
+        if (rc)
+                return rc;
+        rc = fbtft_request_one_gpio(par, "cs-gpios", 0, &par->gpio.cs);
+        if (rc)
+                return rc;
+
+        return 0;
+}
+
+/* returns 0 if the property is not present */
+static u32 __maybe_unused fbtft_property_value(struct device *dev, const char *propname)
+{
+        int ret;
+        u32 val = 0;
+
+        ret = device_property_read_u32(dev, propname, &val);
+        if (ret == 0)
+                dev_info(dev, "%s: %s = %u\n", __func__, propname, val);
+
+        return val;
 }
 
 static __inline int ssd1327_send(struct ssd1327_par *par, u8 byte, int dc)
@@ -263,10 +375,16 @@ static int ssd1327_idle(struct ssd1327_par *par, bool on)
 
 static int ssd1327_sleep(struct ssd1327_par *par, bool on)
 {
+        if (on)
+                write_reg(par, 0xaf);
+        else
+                write_reg(par, 0xae);
+
+        printk("%s, panel was %s", __func__, on ? "off" : "on");
         return 0;
 }
 
-static int ssd1327_show_img(struct ssd1327_par *par, const u8 *img)
+static int __maybe_unused ssd1327_show_img(struct ssd1327_par *par, const u8 *img)
 {
         int i, j;
         int width = par->display->xres;
@@ -299,95 +417,40 @@ static int __maybe_unused ssd1327_clear(struct ssd1327_par *par)
         return 0;
 }
 
-static const struct ssd1327_operations default_ssd1327_ops = {
-        .idle  = ssd1327_idle,
-        .clear = ssd1327_clear,
-        .blank = ssd1327_blank,
-        .reset = ssd1327_reset,
-        .sleep = ssd1327_sleep,
-        .set_addr_win = ssd1327_set_addr_win,
-};
-
-static int ssd1327_request_one_gpio(struct ssd1327_par *par,
-                                    const char *name, int index,
-                                    struct gpio_desc **gpiop)
+static int __maybe_unused ssd1327_set_var(struct ssd1327_par *par)
 {
-        struct device *dev = par->dev;
-        struct device_node *np = dev->of_node;
-        int gpio, flags, rc = 0;
-        enum of_gpio_flags of_flags;
-
-        if (of_find_property(np, name, NULL)) {
-                gpio = of_get_named_gpio_flags(np, name, index, &of_flags);
-                if (gpio == -ENOENT)
-                        return 0;
-                if (gpio == -EPROBE_DEFER)
-                        return gpio;
-                if (gpio < 0) {
-                        dev_err(dev,
-                                "failed to get '%s' from DT\n", name);
-                        return gpio;
-                }
-
-                flags = (of_flags & OF_GPIO_ACTIVE_LOW) ? \
-                        GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
-                rc = devm_gpio_request_one(dev, gpio, flags,
-                                           dev->driver->name);
-                if (rc) {
-                        dev_err(dev,
-                                "gpio_request_one('%s'=%d) failed with %d\n",
-                                name, gpio, rc);
-                        return rc;
-                }
-                if (gpiop)
-                        *gpiop = gpio_to_desc(gpio);
-                pr_debug("%s : '%s' = GPIO%d\n",
-                         __func__, name, gpio);
-        }
-
-        return rc;
+        return 0;
 }
 
-static int ssd1327_request_gpios(struct ssd1327_par *par)
+static int ssd1327_set_gamma(struct ssd1327_par *par, u8 gamma)
 {
-        int rc;
-        pr_debug("%s, configure from dt\n", __func__);
+        /* The chip has 256 contrast steps from 0x00 to 0xFF */
+        gamma &= 0xFF;
 
-        rc = ssd1327_request_one_gpio(par, "reset-gpios", 0, &par->gpio.reset);
-        if (rc)
-                return rc;
-        rc = ssd1327_request_one_gpio(par, "dc-gpios", 0, &par->gpio.dc);
-        if (rc)
-                return rc;
-        rc = ssd1327_request_one_gpio(par, "blk-gpios", 0, &par->gpio.blk);
-        if (rc)
-                return rc;
-        rc = ssd1327_request_one_gpio(par, "cs-gpios", 0, &par->gpio.cs);
-        if (rc)
-                return rc;
+        write_reg(par, 0x81);
+        write_reg(par, gamma);
 
         return 0;
 }
 
-/* returns 0 if the property is not present */
-static u32 __maybe_unused fbtft_property_value(struct device *dev, const char *propname)
-{
-        int ret;
-        u32 val = 0;
-
-        ret = device_property_read_u32(dev, propname, &val);
-        if (ret == 0)
-                dev_info(dev, "%s: %s = %u\n", __func__, propname, val);
-
-        return val;
-}
+static const struct ssd1327_operations default_ssd1327_ops = {
+        .init_display = ssd1327_init_display,
+        .idle         = ssd1327_idle,
+        .clear        = ssd1327_clear,
+        .blank        = ssd1327_blank,
+        .reset        = ssd1327_reset,
+        .sleep        = ssd1327_sleep,
+        .set_var      = ssd1327_set_var,
+        .set_gamma    = ssd1327_set_gamma,
+        .set_addr_win = ssd1327_set_addr_win,
+};
 
 static int ssd1327_of_config(struct ssd1327_par *par)
 {
         int rc;
 
         printk("%s\n", __func__);
-        rc = ssd1327_request_gpios(par);
+        rc = fbtft_request_gpios(par);
         if (rc) {
                 dev_err(par->dev, "Request gpios failed!\n");
                 return rc;
@@ -397,28 +460,23 @@ static int ssd1327_of_config(struct ssd1327_par *par)
         /* request xres and yres from dt */
 }
 
-static int ssd1327_set_var(struct ssd1327_par *par)
-{
-        return 0;
-}
-
 static int ssd1327_hw_init(struct ssd1327_par *par)
 {
-        printk("%s, Display Panel initializing ...\n", __func__);
-        ssd1327_init_display(par);
-        ssd1327_set_var(par);
-        // ssd1327_set_gamma(par, default_curves);
-        ssd1327_clear(par);
-        ssd1327_show_img(par, gImage_1in5);
+        u8 gamma = par->contrast = par->display->gamma;
+        printk("%s, display panel initializing ...\n", __func__);
+
+        par->tftops->init_display(par);
+        par->tftops->set_var(par);
+        par->tftops->set_gamma(par, (gamma & 0xFF));
+        par->tftops->clear(par);
+        // ssd1327_show_img(par, gImage_1in5);
         return 0;
 }
 
 #define RED(a)      ((((a) & 0xf800) >> 11) << 3)
 #define GREEN(a)    ((((a) & 0x07e0) >> 5) << 2)
 #define BLUE(a)     (((a) & 0x001f) << 3)
-
 #define to_rgb565(r,g,b) ((r) << 11 | (g) << 5 | (b))
-
 static inline u16 rgb565_to_grayscale_by_average(u16 rgb565)
 {
         int r, g, b;
@@ -486,7 +544,6 @@ static inline u8 rgb565_to_4bit_grayscale(u16 rgb565)
         return gray;
 }
 
-/* TODO: device seems received wrong color format, check data transfer routine */
 static int write_vmem(struct ssd1327_par *par, size_t offset, size_t len)
 {
         u16 *vmem16;
@@ -745,17 +802,6 @@ static int ssd1327_fb_setcolreg(unsigned int regno, unsigned int red,
         * Program hardware... do anything you want with transp
         */
 
-        /* grayscale works only partially under directcolor */
-        // if (info->var.grayscale) {
-        //     /* grayscale = 0.30*R + 0.59*G + 0.11*B */
-        //     red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
-        // }
-
-        // red >>= (16 - info->var.red.length);
-        // green >>= (16 - info->var.green.length);
-        // blue >>= (16 - info->var.blue.length);
-        // transp >>= (16 - info->var.transp.length);
-
         switch (info->fix.visual) {
         case FB_VISUAL_TRUECOLOR:
                 if (regno < 16) {
@@ -767,13 +813,9 @@ static int ssd1327_fb_setcolreg(unsigned int regno, unsigned int red,
                         ret = 0;
                 }
                 break;
-        case FB_VISUAL_MONO01:
-                ((u32 *)(info->pseudo_palette))[regno] =
-                                        (red << info->var.red.offset) |
-                                        (green << info->var.green.offset) |
-                                        (blue << info->var.blue.offset) |
-                                        (transp << info->var.transp.offset);
-                ret = 0;
+        default:
+                dev_err(info->dev, "unsupported color format!");
+                ret = -1;
                 break;
         }
 
@@ -799,12 +841,47 @@ static int ssd1327_fb_blank(int blank, struct fb_info *info)
         return ret;
 }
 
+static ssize_t show_gamma_curve(struct device *device,
+                                struct device_attribute *attr,
+                                char *buf)
+{
+        struct ssd1327_par *par = dev_get_drvdata(device);
+
+        return sprintf(buf, "%d\n", par->contrast);
+}
+
+static ssize_t store_gamma_curve(struct device *device,
+                                 struct device_attribute *attr,
+                                 const char *buf, size_t count)
+{
+        struct ssd1327_par *par = dev_get_drvdata(device);
+        u8 contrast;
+        int rc;
+
+        rc = kstrtou8(buf, 0, &contrast);
+        if (rc) {
+                dev_err(device, "unsupported gamma value");
+                return -EINVAL;
+        }
+
+        par->contrast = contrast;
+        par->tftops->set_gamma(par, contrast);
+
+        return count;
+}
+
+static struct device_attribute gamma_device_attrs[] = {
+        __ATTR(gamma, 0660, show_gamma_curve, store_gamma_curve),
+};
+
 static const struct ssd1327_display display = {
         .xres = 128,
         .yres = 128,
         .bpp = 16,
         .fps = 60,
         .rotate = 0,
+
+        .gamma = SSD1327_DEF_GAMMA_LEVEL,
 };
 
 static int ssd1327_probe(struct spi_device *spi)
@@ -963,6 +1040,9 @@ static int ssd1327_probe(struct spi_device *spi)
                 goto alloc_fail;
         }
 
+        /* create sysfs interface */
+        device_create_file(dev, &gamma_device_attrs[0]);
+
         printk("%zu KB buffer memory\n", par->txbuf.len >> 10);
         printk(" spi%d.%d at %d MHz\n", spi->master->bus_num, spi->chip_select,
                spi->max_speed_hz / 1000000);
@@ -985,6 +1065,8 @@ static int ssd1327_remove(struct spi_device *spi)
 
         unregister_framebuffer(par->fbinfo);
         framebuffer_release(par->fbinfo);
+
+        device_remove_file(par->fbinfo->dev, &gamma_device_attrs[0]);
         return 0;
 }
 
