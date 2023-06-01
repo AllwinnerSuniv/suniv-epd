@@ -1,22 +1,28 @@
 <h1 align="center">Suniv Epd</h1>
 
-<div style="
-    text-align: center;
-    position: absolute;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    top: 20%;
-    overflow: visible;
-    width: 30%;
-    margin-left: 30%;">
+<h3 align="center">
+So, this is it.
+</h3>
 
-<span>
-This project is based on fbtft
-</span>
+<p align="center">
+SSD1327 based 128x128 OLED display may the best choice i have ever made.
+</p>
 
-</br>
+<p align="center">
+It has good refresh rate, low power consumption and adjustable contrast.
+</p>
+
+<p align="center">
+This will be the best place to develop compatible display driver for my new project "NINJAR".
+</p>
+
+<p align="center">
+Anyway, no matter what the result is，[ I leave this reason for you ]. okay?
+</p>
+
+------------------------
+
+update notes After 6/1/2023
 
 <span>
     Heya, I'm developing linux drivers for E-paper display recently.
@@ -37,4 +43,6 @@ This project is based on fbtft
 
 </br>
 
-</div>
+<span>
+This project is based on fbtft
+</span>
