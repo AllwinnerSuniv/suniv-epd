@@ -3,7 +3,7 @@
 KERN_DIR ?= /lib/modules/$(shell uname -r)/build
 
 # users kernel dir
-KERN_DIR := /home/developer/sources/orangepi-build/kernel/orange-pi-5.10-rk3588
+KERN_DIR := /home/developer/sources/linux
 
 MODULE_NAME = ssd1327_fb
 

@@ -1,27 +1,23 @@
-#include <linux/init.h>
 #include <linux/module.h>
-#include <linux/ioctl.h>
-#include <linux/fs.h>
-#include <linux/err.h>
-#include <linux/list.h>
+#include <linux/kernel.h>
 #include <linux/errno.h>
-#include <linux/mutex.h>
+#include <linux/string.h>
+#include <linux/mm.h>
+#include <linux/vmalloc.h>
 #include <linux/slab.h>
-#include <linux/compat.h>
+#include <linux/init.h>
+#include <linux/fb.h>
+#include <linux/gpio/consumer.h>
+#include <linux/spi/spi.h>
+#include <linux/delay.h>
+#include <linux/uaccess.h>
+#include <linux/backlight.h>
+#include <linux/platform_device.h>
+#include <linux/property.h>
+#include <linux/spinlock.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
-#include <linux/of_device.h>
 
-#include <linux/wait.h>
-#include <linux/spinlock.h>
-
-#include <linux/spi/spi.h>
-#include <linux/spi/spidev.h>
-#include <linux/regmap.h>
-
-#include <linux/uaccess.h>
-
-#include <linux/fb.h>
 #include <video/mipi_display.h>
 
 #include "imagedata.h"
@@ -166,10 +162,9 @@ static int fbtft_request_one_gpio(struct ssd1327_par *par,
         struct device *dev = par->dev;
         struct device_node *np = dev->of_node;
         int gpio, flags, rc = 0;
-        enum of_gpio_flags of_flags;
 
         if (of_find_property(np, name, NULL)) {
-                gpio = of_get_named_gpio_flags(np, name, index, &of_flags);
+                gpio = of_get_named_gpio(np, name, index);
                 if (gpio == -ENOENT)
                         return 0;
                 if (gpio == -EPROBE_DEFER)
@@ -180,8 +175,7 @@ static int fbtft_request_one_gpio(struct ssd1327_par *par,
                         return gpio;
                 }
 
-                flags = (of_flags & OF_GPIO_ACTIVE_LOW) ? \
-                        GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
+                flags = GPIOF_OUT_INIT_LOW;
                 rc = devm_gpio_request_one(dev, gpio, flags,
                                            dev->driver->name);
                 if (rc) {
@@ -555,7 +549,7 @@ static int write_vmem(struct ssd1327_par *par, size_t offset, size_t len)
         __maybe_unused u8 p0, p1;  /* pixel 0,1 in this byte */
         int i, j;
 
-        dev_dbg(par->dev, "%s, offset = %ld, len = %ld\n", __func__, offset, len);
+        // dev_dbg(par->dev, "%s, offset = %ld, len = %ld\n", __func__, offset, len);
 
         /*
          * rgb565 cost 2byte for one pixel,
@@ -1056,7 +1050,7 @@ alloc_fail:
         return 0;
 }
 
-static int ssd1327_remove(struct spi_device *spi)
+static void ssd1327_remove(struct spi_device *spi)
 {
         struct ssd1327_par *par = spi_get_drvdata(spi);
 
@@ -1067,7 +1061,6 @@ static int ssd1327_remove(struct spi_device *spi)
         framebuffer_release(par->fbinfo);
 
         device_remove_file(par->fbinfo->dev, &gamma_device_attrs[0]);
-        return 0;
 }
 
 static int __maybe_unused ssd1327_runtime_suspend(struct device *dev)
