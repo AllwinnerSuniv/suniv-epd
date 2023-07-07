@@ -3,7 +3,7 @@
 KERN_DIR ?= /lib/modules/$(shell uname -r)/build
 
 # users kernel dir
-KERN_DIR := /home/developer/sources/linux
+KERN_DIR := /home/developer/sources/ninjar/linux
 
 MODULE_NAME = ssd1327_fb
 

@@ -651,6 +651,9 @@ static void update_display(struct ssd1327_par *par, unsigned int start_line,
                 end_line = par->fbinfo->var.yres - 1;
         }
 
+        start_line = 0;
+        end_line = par->fbinfo->var.yres - 1;
+
         /* for each column, refresh dirty rows */
         par->tftops->set_addr_win(par, 0, start_line, par->fbinfo->var.xres - 1, end_line);
 
@@ -934,6 +937,7 @@ static int ssd1327_probe(struct spi_device *spi)
 
         fbops->owner        = dev->driver->owner;
         fbops->fb_read      = fb_sys_read;
+        fbops->fb_mmap      = fb_deferred_io_mmap;
         fbops->fb_write     = ssd1327_fb_write;
         fbops->fb_fillrect  = ssd1327_fb_fillrect;
         fbops->fb_copyarea  = ssd1327_fb_copyarea;
