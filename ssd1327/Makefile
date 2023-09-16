@@ -3,9 +3,9 @@
 KERN_DIR ?= /lib/modules/$(shell uname -r)/build
 
 # users kernel dir
-KERN_DIR := /home/developer/sources/ninjar/linux
+KERN_DIR := /home/developer/.sources/ninjar/linux
 
-MODULE_NAME = ssd1327_fb
+MODULE_NAME = fb_ssd1327
 
 all:
 	make -C $(KERN_DIR) M=`pwd` modules
