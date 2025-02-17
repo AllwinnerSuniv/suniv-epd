@@ -16,10 +16,6 @@ It has good refresh rate, low power consumption and adjustable contrast.
 This will be the best place to develop compatible display driver for my new project "NINJAR".
 </p>
 
-<p align="center">
-Anyway, no matter what the result is，[ I leave this reason for you ]. okay?
-</p>
-
 ------------------------
 
 update notes After 6/1/2023
